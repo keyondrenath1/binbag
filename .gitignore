@@ -1,0 +1,26 @@
+# Your config names your mailbox; keep it out of the repo.
+binbag.toml
+.binbag.toml
+
+# OAuth tokens live in ~/.config/binbag/tokens/ by default. Belt and braces:
+*.token.json
+tokens/
+
+# Generated reports list real senders and subjects.
+binbag.report.html
+binbag.demo.html
+binbagdemoreport.html
+*.report.html
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# macOS
+.DS_Store
