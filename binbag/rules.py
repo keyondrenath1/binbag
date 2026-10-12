@@ -95,6 +95,46 @@ def _looks_disguised(subject: str) -> Optional[str]:
     return None
 
 
+# Bulk spammers send from throwaway personal accounts and stamp each subject
+# with a random tag so no two are identical: "...Fat Removal bYc", "...hf9",
+# "Membership has Expired#af50m". A tag is a short token that mixes letters
+# and digits, mixes case oddly, or is a stray block of capitals after a
+# normal word.
+_TAG_RE = re.compile(r"(?:^|[\s#_!])([A-Za-z0-9]{1,6})[\"'.]?\s*$")
+_SALES_RE = re.compile(
+    r"[$£€]\s?\d|\d+\s?%|\b(free|save|off|win|winner|won|reward|claim|selected|"
+    r"expired|offer|discount|deal|prize|gift|bonus|limited|plan|coverage|protection|"
+    r"warranty|quote|surprise|confirm\s?receipt)\b",
+    re.I,
+)
+# Short tokens that legitimately end a subject and must never count as tags.
+_NOT_TAGS = {
+    "UK", "US", "USA", "EU", "TV", "PC", "AI", "ID", "PDF", "FAQ", "VAT", "NHS", "HMRC",
+    "DVLA", "UPS", "DHL", "DPD", "BBC", "OK", "AM", "PM", "UAE", "IT", "HR", "CV", "PS",
+}
+_UNIT_RE = re.compile(r"^\d+(p|k|m|bn|gb|mb|tb|kg|km|mph|x|st|nd|rd|th|am|pm|s)$", re.I)
+
+
+def _random_tag(subject: str) -> Optional[str]:
+    match = _TAG_RE.search(subject.strip())
+    if not match:
+        return None
+    tag = match.group(1)
+    if tag.upper() in _NOT_TAGS or _UNIT_RE.match(tag):
+        return None
+    before = subject.strip()[: match.start(1)].rstrip(" #_!").split()
+    prev = before[-1] if before else ""
+    has_digit = any(c.isdigit() for c in tag)
+    has_alpha = any(c.isalpha() for c in tag)
+    if has_digit and has_alpha:
+        return tag                       # f3b, hf9, 1z5, X6, #c7, axG537
+    if has_alpha and len(tag) <= 3 and not (tag.isupper() or tag.islower() or tag.istitle()):
+        return tag                       # eWw, bYc, YIl, nA, uK
+    if tag.isupper() and 2 <= len(tag) <= 4 and prev and not prev.isupper():
+        return tag                       # "...Ever Need PRT", "...Only $2! FPCP"
+    return None
+
+
 _NOREPLY_RE = re.compile(
     r"\b(no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|notifications?|"
     r"mailer|bounce|newsletter|news|marketing|promo|offers?|deals?|info|hello|"
@@ -194,6 +234,16 @@ class Scorer:
         if sender and "\ufffd" in sender:
             return Verdict(msg, 100, ["sender address is unreadable, so it's spoofed or malformed"], [], protected=False)
 
+        # 3b. Throwaway-account spam. A stranger on a personal address
+        #     (Gmail, Hotmail ...) whose subject carries a random anti-filter
+        #     tag *and* sales wording. Each alone is too weak: a sole trader
+        #     on Gmail may well send "Invoice INV23", and plenty of strangers
+        #     say "free". Together they're the pattern. People you've written
+        #     to or replied to, and your allowlist, are exempt.
+        spam = self._throwaway_spam(msg, sender, domain, root)
+        if spam:
+            return Verdict(msg, 100, [spam], [], protected=False)
+
         # 4. Expiry. You've said exactly which sender and how old, so this
         #    beats the softer protections below, transactional ones included:
         #    that's the point of it. Undated mail is never expired.
@@ -287,6 +337,19 @@ class Scorer:
         if score < self.rules.threshold:
             return Verdict(msg, score, reasons, soft + ["below the junk threshold"], protected=True)
         return Verdict(msg, score, reasons, soft, protected=False)
+
+    def _throwaway_spam(self, msg: Message, sender: str, domain: str, root: str) -> Optional[str]:
+        if not sender or domain not in FREEMAIL:
+            return None
+        if sender in self.contacts.addresses or sender in self._sender_answered:
+            return None
+        if sender in self._allow_exact or domain in self._allow_domains or root in self._allow_domains:
+            return None
+        subject = msg.subject
+        tag = _random_tag(subject)
+        if not tag or not _SALES_RE.search(subject):
+            return None
+        return f"stranger on a personal address, sales pitch stamped with a random tag ({tag!r})"
 
     def _expiry(self, msg: Message) -> Optional[str]:
         if not self.rules.expire or not msg.from_address:

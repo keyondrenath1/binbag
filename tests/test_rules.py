@@ -204,3 +204,49 @@ def test_disguised_subjects_are_junk(subject):
 def test_normal_capitals_and_accents_are_not_disguise(subject):
     from binbag.rules import _looks_disguised
     assert _looks_disguised(subject) is None
+
+
+# -- throwaway-account spam --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "Save on your Liposuction Procedure 1z5",
+        "Save $250 on One Day Fat Removal f3b",
+        "ATTENTION: Your membership has expired ! X6",
+        "Your membership has expired!#c7",
+        "Get Your Personalized Hearing Plan eWw",
+        "Limited offer - $300 off Endurance protection purchase h3",
+    ],
+)
+def test_throwaway_spam_with_random_tag_is_binned(subject):
+    v = scorer().judge(make(sender="randomname1234@gmail.com", subject=subject, unsubscribe=False))
+    assert v.is_junk, (v.score, v.reasons, v.protections)
+    assert "random tag" in v.reasons[0]
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "Invoice INV23 for the boiler service",          # sole trader on Gmail: tag but no sales pitch
+        "Free tickets for Saturday if you want them",     # sales word, no tag
+        "Selling my old iPhone, good deal",               # 'iPhone' is not a tag
+        "Last chance to save your place, ring me UK",     # 'UK' is not a tag
+        "Bake sale 50% off, all cakes 99p",               # '99p' is a price, not a tag
+    ],
+)
+def test_ordinary_mail_from_strangers_on_gmail_is_not_caught(subject):
+    v = scorer().judge(make(sender="someone.real@gmail.com", subject=subject, unsubscribe=False, seen=True))
+    assert not any("random tag" in r for r in v.reasons), subject
+
+
+def test_people_you_email_are_exempt_from_throwaway_rule():
+    contacts = Contacts(addresses={"mate@gmail.com"})
+    v = scorer(contacts).judge(make(sender="mate@gmail.com", subject="Save $250 on One Day Fat Removal f3b"))
+    assert not v.is_junk
+
+
+def test_company_senders_are_not_judged_by_throwaway_rule():
+    v = scorer().judge(make(sender="offers@shop.example.com", subject="Save $250 today f3b", unsubscribe=False, seen=True, age_days=5))
+    assert not any("random tag" in r for r in v.reasons)
