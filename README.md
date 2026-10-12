@@ -89,12 +89,23 @@ binbag scan
 
 For a Microsoft 365 work or school mailbox, set `oauth_tenant = "organizations"` or your tenant ID. Your IT admin may need to approve the app.
 
+## In your browser
+
+```bash
+binbag serve
+```
+
+Opens binbag at `http://127.0.0.1:8765/`. Press **Scan inbox** and you get every sender grouped and ranked, with what binbag would bin and why. Per sender: **Bin all**, **Bin domain**, **Keep**, or open it and **keep recent mail, bin anything sent before** a date. Every change re-scores instantly, without re-reading your mailbox. When the list looks right, **Move to the Bin** asks once and does it.
+
+It's still entirely local. The server only listens on your own machine, every request needs a one-time token baked into the page, and it rejects requests addressed to any other hostname, so no website you have open can reach it. Rules you set in the browser are saved to `binbag.rules.toml` beside your config (git-ignored, plain TOML, safe to edit or delete), and your hand-written `binbag.toml` is never rewritten.
+
 ## Commands
 
 ```
 binbag demo                    fake mailbox, no credentials, see the output shape
 binbag init                    write a starter binbag.toml
 binbag login                   sign in to Outlook/Hotmail with OAuth2, once
+binbag serve                   the whole thing in your browser, still local
 binbag folders                 what your server calls the Bin, Sent and Junk
 binbag scan                    score everything, write a report, change nothing
 binbag clean --apply           move the junk to the Bin

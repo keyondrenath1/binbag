@@ -139,13 +139,43 @@ class Config:
     rules: Rules = field(default_factory=Rules)
     #: Where junk goes. "trash" (recoverable) or "junk" (spam folder).
     destination: str = "trash"
+    #: The file this config came from, when loaded from disk.
+    path: Optional[Path] = None
+
+    @property
+    def rules_path(self) -> Optional[Path]:
+        """binbag.rules.toml beside the config: rules set from `binbag serve`."""
+        from .rulefile import rules_path_for
+
+        return rules_path_for(self.path) if self.path else None
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "Config":
         path = _resolve_path(path)
         with path.open("rb") as fh:
             raw = tomllib.load(fh)
-        return cls.from_dict(raw)
+        cfg = cls.from_dict(raw)
+        cfg.path = path.resolve()
+        cfg._merge_rule_file()
+        return cfg
+
+    def _merge_rule_file(self) -> None:
+        from .rulefile import RuleFile
+
+        rp = self.rules_path
+        if not rp or not rp.exists():
+            return
+        try:
+            extra = RuleFile.load(rp)
+            expire = [_parse_expire(e) for e in extra.expire]
+        except (tomllib.TOMLDecodeError, ConfigError) as exc:
+            raise ConfigError(f"{rp.name} is invalid: {exc}") from exc
+        # Browser rules are per sender and replace each other, so a sender set
+        # there overrides the same sender in binbag.toml, never stacks with it.
+        overridden = set(extra.block) | set(extra.allow) | {e.sender for e in expire}
+        self.rules.block = [b for b in self.rules.block if b not in overridden] + extra.block
+        self.rules.allow = [a for a in self.rules.allow if a not in overridden] + extra.allow
+        self.rules.expire = [e for e in self.rules.expire if e.sender not in overridden] + expire
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "Config":

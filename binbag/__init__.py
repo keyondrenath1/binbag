@@ -1,3 +1,3 @@
 """binbag: find and bin junk mail in any IMAP mailbox."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

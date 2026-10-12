@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>binbag</title>
+<style>
+  :root {
+    --bg: #f7f5f1; --fg: #1c1b19; --muted: #6b6862; --line: #e3dfd8; --card: #ffffff;
+    --accent: #b4472a; --accent-ink: #ffffff; --good: #3f6d4e; --soft: #f0ece5; --warn: #8a5a12;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14130f; --fg: #eceae4; --muted: #9a968c; --line: #2d2b25; --card: #1c1a15;
+      --accent: #e0724f; --accent-ink: #1c1b19; --good: #7fb392; --soft: #24221c; --warn: #e0b45f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 1.5rem 1rem 7rem; }
+  header { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+  .mark { font-weight: 750; font-size: 1.35rem; letter-spacing: -.03em; }
+  .acct { color: var(--muted); font-size: .9rem; flex: 1; min-width: 12rem; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--fg);
+           border-radius: 8px; padding: .38rem .7rem; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.small { font-size: .8rem; padding: .22rem .5rem; }
+  .pill { font-size: .78rem; padding: .15rem .55rem; border-radius: 99px; background: var(--soft); color: var(--muted); }
+  .pill.busy { color: var(--warn); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .6rem; margin-bottom: 1.25rem; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .75rem .9rem; }
+  .stat b { display: block; font-size: 1.5rem; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .06em; }
+  .toolbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: .75rem; }
+  .tabs button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  input[type=search], input[type=date] { font: inherit; border: 1px solid var(--line); background: var(--card);
+           color: var(--fg); border-radius: 8px; padding: .36rem .6rem; }
+  input[type=search] { flex: 1; min-width: 12rem; }
+  select { font: inherit; font-size: .85rem; border: 1px solid var(--line); background: var(--card); color: var(--fg);
+           border-radius: 8px; padding: .3rem .5rem; max-width: 16rem; }
+  .empty, .log { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1.25rem; color: var(--muted); }
+  .log { font: .82rem/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; margin-bottom: 1rem; }
+  .err { color: var(--accent); }
+  .row { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-bottom: .45rem; }
+  .head { display: grid; grid-template-columns: 4.2rem 1fr auto; gap: .75rem; align-items: center; padding: .65rem .85rem; cursor: pointer; }
+  .count { text-align: right; font-variant-numeric: tabular-nums; }
+  .count b { color: var(--accent); font-size: 1.05rem; }
+  .count small { display: block; color: var(--muted); font-size: .74rem; }
+  .who { min-width: 0; }
+  .who .name { font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who .addr, .who .why { color: var(--muted); font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip { display: inline-block; font-size: .72rem; padding: .05rem .45rem; border-radius: 99px; margin-left: .35rem;
+          border: 1px solid var(--line); color: var(--muted); vertical-align: 1px; }
+  .chip.block { color: var(--accent); border-color: var(--accent); }
+  .chip.allow { color: var(--good); border-color: var(--good); }
+  .chip.expire { color: var(--warn); border-color: var(--warn); }
+  .acts { display: flex; gap: .3rem; flex-wrap: wrap; justify-content: flex-end; }
+  .body { border-top: 1px solid var(--line); padding: .6rem .85rem .85rem 5.6rem; }
+  .expire { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin-bottom: .6rem; font-size: .85rem; color: var(--muted); }
+  ul.msgs { list-style: none; margin: 0; padding: 0; }
+  ul.msgs li { display: grid; grid-template-columns: 6.2rem 1fr auto; gap: .6rem; padding: .32rem 0; border-top: 1px solid var(--line); font-size: .86rem; }
+  ul.msgs li:first-child { border-top: 0; }
+  .d { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tag { font-size: .72rem; }
+  .tag.j { color: var(--accent); } .tag.k { color: var(--good); }
+  .sub small { display: block; color: var(--muted); font-size: .76rem; }
+  .more { text-align: center; margin: 1rem 0; }
+  footer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--line); }
+  footer .in { max-width: 980px; margin: 0 auto; padding: .8rem 1rem; display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+  footer .note { color: var(--muted); font-size: .85rem; flex: 1; min-width: 14rem; }
+  a { color: var(--accent); }
+  @media (max-width: 640px) {
+    .head { grid-template-columns: 3.2rem 1fr; }
+    .acts { grid-column: 1 / -1; justify-content: flex-start; }
+    .body { padding-left: .85rem; }
+    ul.msgs li { grid-template-columns: 1fr; gap: .1rem; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="mark">binbag</span>
+    <span class="acct" id="acct"></span>
+    <span class="pill" id="status">idle</span>
+    <button class="primary" id="scan">Scan inbox</button>
+  </header>
+
+  <div class="stats" id="stats"></div>
+  <div id="logbox"></div>
+
+  <div class="toolbar">
+    <div class="tabs" role="group" aria-label="Show">
+      <button data-tab="junk" aria-pressed="true">To bin</button>
+      <button data-tab="kept" aria-pressed="false">Kept</button>
+      <button data-tab="all" aria-pressed="false">All</button>
+    </div>
+    <input type="search" id="q" placeholder="Filter by sender or subject" aria-label="Filter">
+  </div>
+
+  <div id="list"></div>
+</main>
+
+<footer>
+  <div class="in">
+    <span class="note" id="footnote">Nothing moves until you press the button. Moved mail goes to your Bin and can be restored.</span>
+    <span id="confirm"></span>
+    <button class="primary" id="move" disabled>Move junk to the Bin</button>
+  </div>
+</footer>
+
+<script>
+"use strict";
+const TOKEN = "__TOKEN__";
+const $ = (id) => document.getElementById(id);
+let S = null, tab = "junk", q = "", open = new Set(), shown = 150, timer = null;
+
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v !== null && v !== undefined && v !== false) e.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false)
+    e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  return e;
+}
+const n = (x) => Number(x || 0).toLocaleString("en-GB");
+
+async function api(path, body) {
+  const opts = { headers: { "X-Binbag-Token": TOKEN } };
+  if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+
+async function refresh() {
+  try { S = await api("/api/state"); render(); }
+  catch (e) { $("status").textContent = "disconnected"; }
+  clearTimeout(timer);
+  if (S && (S.status === "scanning" || S.status === "moving")) timer = setTimeout(refresh, 1000);
+}
+
+function render() {
+  $("acct").textContent = S.account + " · " + S.folders.join(", ") + (S.scanned_at ? " · scanned " + S.scanned_at : "");
+  const busy = S.status === "scanning" || S.status === "moving";
+  $("status").textContent = S.status === "idle" ? (S.scanned_at ? "ready" : "not scanned yet") : S.status;
+  $("status").className = "pill" + (busy ? " busy" : "");
+  $("scan").disabled = busy;
+  $("scan").textContent = S.scanned_at ? "Rescan" : "Scan inbox";
+
+  const t = S.totals;
+  $("stats").replaceChildren(
+    stat(n(t.scanned), "scanned"), stat(n(t.junk), "to bin"), stat(n(t.kept), "kept"), stat(n(t.unread), "unread"),
+    stat(n(S.senders.length), "senders"));
+
+  const lb = $("logbox");
+  if (busy || S.error) {
+    lb.replaceChildren(el("div", { class: "log" }, S.error ? el("span", { class: "err" }, S.error) : S.log.join("\n") || "Starting ..."));
+  } else lb.replaceChildren();
+
+  const mv = $("move");
+  mv.disabled = busy || !t.junk;
+  mv.textContent = t.junk ? `Move ${n(t.junk)} to the Bin` : "Nothing to move";
+  if (S.last_move && !busy) {
+    $("footnote").textContent = `Moved ${n(S.last_move.moved)} to ${S.last_move.dest}.` +
+      (S.last_move.skipped.length ? ` Skipped ${S.last_move.skipped.join(", ")}: rescan it.` : " Restore from there if anything shouldn't have gone.");
+  }
+  renderList();
+}
+
+function stat(v, label) { return el("div", { class: "stat" }, el("b", {}, v), el("span", {}, label)); }
+
+function renderList() {
+  const list = $("list");
+  if (!S.scanned_at && !S.senders.length) {
+    list.replaceChildren(el("div", { class: "empty" },
+      "Press Scan inbox. binbag reads message headers only, changes nothing, and shows you who's filling your inbox."));
+    return;
+  }
+  let rows = S.senders.filter((s) => tab === "all" || (tab === "junk" ? s.junk > 0 : s.junk < s.total));
+  if (q) {
+    const needle = q.toLowerCase();
+    rows = rows.filter((s) => (s.display + " " + s.address).toLowerCase().includes(needle) ||
+      s.messages.some((m) => m.subject.toLowerCase().includes(needle)));
+  }
+  if (!rows.length) { list.replaceChildren(el("div", { class: "empty" }, tab === "junk" ? "Nothing to bin." : "Nothing here.")); return; }
+  const frag = rows.slice(0, shown).map(senderRow);
+  if (rows.length > shown) frag.push(el("div", { class: "more" },
+    el("button", { onclick: () => { shown += 150; renderList(); } }, `Show more (${n(rows.length - shown)} left)`)));
+  list.replaceChildren(...frag);
+}
+
+function ruleChip(r) {
+  if (!r) return null;
+  let text = r.kind === "block" ? "always bin" : r.kind === "allow" ? "always keep" : "bin if older than " + (r.before || (r.older_than_days + " days"));
+  if (r.sender && r.sender.indexOf("@") < 0) text += " · " + r.sender;
+  if (r.source === "config") text += " · binbag.toml";
+  return el("span", { class: "chip " + r.kind, title: r.source === "config" ? "Set in binbag.toml; edit it there" : "Set here" }, text);
+}
+
+function senderRow(s) {
+  const isOpen = open.has(s.address);
+  const browserRule = s.rule && s.rule.source === "browser";
+  const acts = el("div", { class: "acts" },
+    s.unsubscribe ? el("a", { href: s.unsubscribe, target: "_blank", rel: "noopener noreferrer", class: "small", style: "font-size:.8rem;align-self:center;margin-right:.3rem" }, "unsubscribe") : null,
+    el("button", { class: "small", onclick: (e) => { e.stopPropagation(); setRule("block", s.address); } }, "Bin all"),
+    s.domain ? el("button", { class: "small", title: "Every address at " + s.domain, onclick: (e) => { e.stopPropagation(); setRule("block", s.domain); } }, "Bin domain") : null,
+    el("button", { class: "small", onclick: (e) => { e.stopPropagation(); setRule("allow", s.address); } }, "Keep"),
+    browserRule ? el("button", { class: "small", onclick: (e) => { e.stopPropagation(); setRule("clear", s.rule.sender); } }, "Undo") : null);
+
+  const head = el("div", { class: "head", onclick: () => { isOpen ? open.delete(s.address) : open.add(s.address); renderList(); } },
+    el("div", { class: "count" }, el("b", {}, n(s.junk)), el("small", {}, "of " + n(s.total))),
+    el("div", { class: "who" },
+      el("div", { class: "name" }, s.display, ruleChip(s.rule)),
+      el("div", { class: "addr" }, s.address + (s.oldest ? `  ·  ${s.oldest} to ${s.newest}` : "")),
+      el("div", { class: "why" }, s.junk ? s.why : "kept: " + s.keep_why)),
+    acts);
+  const row = el("div", { class: "row" }, head);
+  if (isOpen) {
+    const date = el("input", { type: "date", "aria-label": "Bin mail older than" });
+    const body = el("div", { class: "body" },
+      el("div", { class: "expire" }, "Keep recent mail, bin anything from ",
+        el("select", { id: "scope-" + btoa(unescape(encodeURIComponent(s.address))).replace(/=/g, "") },
+          el("option", { value: s.address }, "this address"),
+          s.domain ? el("option", { value: s.domain }, "all of " + s.domain) : null),
+        " sent before ", date,
+        el("button", { class: "small", onclick: (e) => {
+          const sel = e.target.parentNode.querySelector("select");
+          if (!date.value) { date.focus(); return; }
+          setRule("expire", sel.value, { before: date.value });
+        } }, "Set")),
+      el("ul", { class: "msgs" }, s.messages.map((m) => el("li", {},
+        el("span", { class: "d" }, m.date),
+        el("span", { class: "sub" }, m.subject, el("small", {}, m.why)),
+        el("span", { class: "tag " + (m.junk ? "j" : "k") }, m.junk ? "bin" : "keep")))),
+      s.total > s.messages.length ? el("div", { class: "d", style: "font-size:.8rem;margin-top:.4rem" }, `Newest ${s.messages.length} of ${n(s.total)} shown.`) : null);
+    row.append(body);
+  }
+  return row;
+}
+
+async function setRule(kind, sender, extra = {}) {
+  try { S = await api("/api/rule", { kind, sender, ...extra }); render(); }
+  catch (e) { alertInline(e.message); }
+}
+
+function alertInline(msg) {
+  $("logbox").replaceChildren(el("div", { class: "log" }, el("span", { class: "err" }, msg)));
+}
+
+$("scan").addEventListener("click", async () => {
+  try { await api("/api/scan", {}); } catch (e) { alertInline(e.message); }
+  refresh();
+});
+
+$("move").addEventListener("click", () => {
+  const count = S.totals.junk;
+  $("move").hidden = true;
+  $("confirm").replaceChildren(
+    el("span", { style: "margin-right:.5rem" }, `Move ${n(count)} messages to the Bin?`),
+    el("button", { class: "primary", onclick: async () => {
+      $("confirm").replaceChildren(); $("move").hidden = false;
+      try { await api("/api/clean", { expected: count }); } catch (e) { alertInline(e.message); }
+      refresh();
+    } }, "Yes, move them"),
+    el("button", { style: "margin-left:.4rem", onclick: () => { $("confirm").replaceChildren(); $("move").hidden = false; } }, "Cancel"));
+});
+
+document.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => {
+  tab = b.dataset.tab; shown = 150;
+  document.querySelectorAll("[data-tab]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  renderList();
+}));
+$("q").addEventListener("input", (e) => { q = e.target.value.trim(); shown = 150; renderList(); });
+
+refresh();
+</script>
+</body>
+</html>

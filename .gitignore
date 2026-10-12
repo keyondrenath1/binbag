@@ -1,6 +1,7 @@
 # Your config names your mailbox; keep it out of the repo.
 binbag.toml
 .binbag.toml
+binbag.rules.toml
 
 # OAuth tokens live in ~/.config/binbag/tokens/ by default. Belt and braces:
 *.token.json

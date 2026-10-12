@@ -2,6 +2,7 @@
 
     binbag init                 write a starter config
     binbag login                sign in to Outlook/Hotmail (OAuth2), once
+    binbag serve                the same, in your browser: scan, set rules, clean
     binbag folders              show what the server calls things
     binbag scan                 dry run: score everything, write a report
     binbag clean --apply        move the junk to the Bin
@@ -62,6 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--username", default="you@example.com")
     init.add_argument("-o", "--out", type=Path, default=Path("binbag.toml"))
     init.set_defaults(func=cmd_init)
+
+    serve = sub.add_parser("serve", help="open binbag in your browser (runs locally)")
+    serve.add_argument("-c", "--config", type=Path, default=None, help="path to binbag.toml")
+    serve.add_argument("-p", "--port", type=int, default=8765)
+    serve.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
+    serve.set_defaults(func=cmd_serve)
 
     login = sub.add_parser("login", help="sign in to Outlook/Hotmail with OAuth2 (one-off)")
     _common(login)
@@ -164,6 +171,12 @@ def cmd_init(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    from .web import serve
+
+    return serve(args.config, port=args.port, open_browser=not args.no_browser)
+
+
 def cmd_login(args) -> int:
     from . import oauth
 
@@ -224,30 +237,7 @@ def cmd_clean(args) -> int:
             print("  Cancelled. Nothing moved.\n")
             return 1
 
-    by_folder: dict[str, List[str]] = {}
-    for v in junk:
-        by_folder.setdefault(v.message.folder, []).append(v.message.uid)
-
-    total = 0
-    skipped: List[str] = []
-    with open_mailbox(cfg.account) as box:
-        dest = _resolve_destination(box, cfg)
-        for folder, uids in by_folder.items():
-            if folder == dest:
-                continue  # already in the Bin
-            box.select(folder, readonly=False)
-            # UIDs only mean anything alongside the folder's UIDVALIDITY. If the
-            # server renumbered the folder since the scan, these UIDs may now
-            # point at different messages. Refuse rather than guess.
-            before, now = scanned_validity.get(folder), box.uidvalidity.get(folder)
-            if before is None or now is None or before != now:
-                skipped.append(folder)
-                print(f"  {folder}: skipped, the server renumbered this folder since the scan "
-                      f"(UIDVALIDITY {before} -> {now}). Re-run to rescan it.")
-                continue
-            moved = box.move(uids, dest)
-            total += moved
-            print(f"  {folder}: moved {moved}")
+    total, dest, skipped = move_junk(cfg, junk, scanned_validity, say=print)
     print(f"\n  Done. {total} messages are now in {dest!r} and can be restored from there.\n")
     if skipped:
         print(f"  Not touched: {', '.join(skipped)}.\n")
@@ -290,18 +280,42 @@ def cmd_senders(args) -> int:
 # -- shared machinery ------------------------------------------------------
 
 
-def _run_scan(args) -> tuple[Config, List[Verdict], str, Dict[str, Optional[int]]]:
-    cfg = Config.load(args.config)
-    folders = args.folders or cfg.rules.folders or ["INBOX"]
-    threshold = _threshold(cfg, args)
-    cfg.rules.threshold = threshold
-    say = (lambda *a: None) if args.quiet else (lambda *a: print(*a))
+def move_junk(cfg: Config, junk: Sequence[Verdict], scanned_validity: Dict[str, Optional[int]],
+              say=lambda *a: None) -> tuple[int, str, List[str]]:
+    """Move these verdicts' messages to the Bin. Returns (moved, bin name, skipped folders).
 
-    criteria: List[str] = []
-    if not args.all_time and args.last_days and args.last_days > 0:
-        since = datetime.now() - timedelta(days=args.last_days)
-        criteria = ["SINCE", f"{since.day:02d}-{MONTHS[since.month - 1]}-{since.year}"]
+    Shared by `clean --apply` and `binbag serve`, so both get the same checks.
+    """
+    by_folder: Dict[str, List[str]] = {}
+    for v in junk:
+        by_folder.setdefault(v.message.folder, []).append(v.message.uid)
 
+    total = 0
+    skipped: List[str] = []
+    with open_mailbox(cfg.account) as box:
+        dest = _resolve_destination(box, cfg)
+        for folder, uids in by_folder.items():
+            if folder == dest:
+                continue  # already in the Bin
+            box.select(folder, readonly=False)
+            # UIDs only mean anything alongside the folder's UIDVALIDITY. If the
+            # server renumbered the folder since the scan, these UIDs may now
+            # point at different messages. Refuse rather than guess.
+            before, now = scanned_validity.get(folder), box.uidvalidity.get(folder)
+            if before is None or now is None or before != now:
+                skipped.append(folder)
+                say(f"  {folder}: skipped, the server renumbered this folder since the scan "
+                    f"(UIDVALIDITY {before} -> {now}). Re-run to rescan it.")
+                continue
+            moved = box.move(uids, dest)
+            total += moved
+            say(f"  {folder}: moved {moved}")
+    return total, dest, skipped
+
+
+def fetch_mailbox(cfg: Config, folders: Sequence[str], criteria: Sequence[str] = (), limit: int = 0,
+                  say=lambda *a: None) -> tuple[List[Message], Contacts, Dict[str, Optional[int]]]:
+    """Read headers from the given folders, read-only. No scoring."""
     with open_mailbox(cfg.account) as box:
         contacts = Contacts()
         if cfg.rules.learn_from_sent:
@@ -314,8 +328,8 @@ def _run_scan(args) -> tuple[Config, List[Verdict], str, Dict[str, Optional[int]
             box.select(folder, readonly=True)
             validity[folder] = box.uidvalidity.get(folder)
             uids = box.search(*criteria)
-            if args.limit:
-                uids = uids[-args.limit :]
+            if limit:
+                uids = uids[-limit:]
             if not uids:
                 say(f"    nothing matched in {folder}")
                 continue
@@ -323,6 +337,22 @@ def _run_scan(args) -> tuple[Config, List[Verdict], str, Dict[str, Optional[int]
             _tag_gmail_categories(box, fetched)
             messages.extend(fetched)
             say(f"    {len(uids)} messages")
+    return messages, contacts, validity
+
+
+def _run_scan(args) -> tuple[Config, List[Verdict], str, Dict[str, Optional[int]]]:
+    cfg = Config.load(args.config)
+    folders = args.folders or cfg.rules.folders or ["INBOX"]
+    threshold = _threshold(cfg, args)
+    cfg.rules.threshold = threshold
+    say = (lambda *a: None) if args.quiet else (lambda *a: print(*a))
+
+    criteria: List[str] = []
+    if not args.all_time and args.last_days and args.last_days > 0:
+        since = datetime.now() - timedelta(days=args.last_days)
+        criteria = ["SINCE", f"{since.day:02d}-{MONTHS[since.month - 1]}-{since.year}"]
+
+    messages, contacts, validity = fetch_mailbox(cfg, folders, criteria, args.limit, say)
 
     scorer = Scorer(cfg.rules, contacts)
     verdicts = scorer.judge_all(messages)
