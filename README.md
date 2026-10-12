@@ -23,12 +23,14 @@ So binbag talks to Gmail, iCloud, Outlook, Yahoo, Fastmail or anything else that
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/binbag
+git clone https://github.com/keyondrenath1/binbag
 cd binbag
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .
 ```
 
-Python 3.11 or newer. No dependencies: everything it needs is in the standard library.
+Python 3.11 or newer. No dependencies: everything it needs is in the standard library. The virtual environment keeps it away from any other Python on your machine (conda, Homebrew, the system one), which is the usual cause of `command not found` or "requires a different Python". In a new terminal, `source .venv/bin/activate` again before running `binbag`.
 
 ## Try it without connecting anything
 
@@ -99,7 +101,7 @@ binbag clean --apply           move the junk to the Bin
 binbag senders -n 40           who is filling your inbox, with unsubscribe links
 ```
 
-Useful flags: `--threshold 45` bins more, `--threshold 75` bins less. `--folder "Archive"` (repeatable) widens the sweep. By default every message in the folder is scanned, however old; `--last-days 90` narrows it. `--limit 500` for a cautious first run.
+Useful flags: `--csv all.csv` writes every message's verdict, kept and junk, to a spreadsheet you can sort and filter. `--threshold 45` bins more, `--threshold 75` bins less. `--folder "Archive"` (repeatable) widens the sweep. By default every message in the folder is scanned, however old; `--last-days 90` narrows it. `--limit 500` for a cautious first run.
 
 ## How it decides
 

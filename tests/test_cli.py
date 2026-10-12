@@ -146,3 +146,24 @@ def test_init_for_gmail_writes_password_config(tmp_path):
     cli.main(["init", "--provider", "gmail", "--username", "me@gmail.com", "-o", str(out)])
     text = out.read_text()
     assert "BINBAG_PASSWORD" in text and "oauth2" not in text
+
+
+def test_scan_csv_lists_every_message_kept_and_junk(server, tmp_path):
+    import csv
+
+    out = tmp_path / "all.csv"
+    assert run(server, "scan", "--csv", str(out)) == 0
+    rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert len(rows) == len(server["messages"])
+    verdicts = {r["uid"]: r["verdict"] for r in rows}
+    assert verdicts["1"] == "junk"
+    assert verdicts["2"] == "keep"  # HMRC statement
+    assert all(r["from_address"] for r in rows)
+
+
+def test_confirm_prompt_names_the_real_folder(server, monkeypatch):
+    asked = []
+    monkeypatch.setattr("builtins.input", lambda prompt: asked.append(prompt) or "n")
+    assert run(server, "clean", "--apply") == 1
+    assert "'Trash'" in asked[0]
+    assert server["moved"] == []

@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -115,6 +116,8 @@ def _scan_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument("--limit", type=int, default=0, help="cap how many messages to score")
     p.add_argument("-r", "--report", type=Path, default=Path("binbag.report.html"),
                    help="where to write the HTML report ('-' to skip)")
+    p.add_argument("--csv", type=Path, default=None,
+                   help="also write every message's verdict to a CSV file (kept and junk)")
 
 
 # -- commands --------------------------------------------------------------
@@ -213,8 +216,9 @@ def cmd_clean(args) -> int:
         print("  Nothing to move.\n")
         return 0
 
-    destination = _destination(cfg, args)
     if not args.yes:
+        with open_mailbox(cfg.account) as box:
+            destination = _destination_label(box, cfg)
         answer = input(f"  Move {len(junk)} messages to {destination!r}? [y/N] ").strip().lower()
         if answer not in {"y", "yes"}:
             print("  Cancelled. Nothing moved.\n")
@@ -361,6 +365,31 @@ def _finish(args, cfg: Config, verdicts, account_label: str, applied: bool) -> N
     if args.report and str(args.report) != "-":
         path = write_html(verdicts, args.report, _threshold(cfg, args), account_label, applied)
         print(f"  Report: {path.resolve()}\n")
+    if getattr(args, "csv", None):
+        path = write_csv(verdicts, args.csv)
+        print(f"  CSV:    {path.resolve()}  (contains your senders and subjects: don't commit it)\n")
+
+
+CSV_FIELDS = ["folder", "uid", "date", "unread", "flagged", "verdict", "score",
+              "from_address", "from_name", "subject", "reasons", "protections"]
+
+
+def write_csv(verdicts: Sequence[Verdict], path: Path) -> Path:
+    """Every message, one row each, newest first. For reviewing what was kept."""
+    rows = sorted(verdicts, key=lambda v: v.message.date.timestamp() if v.message.date else 0, reverse=True)
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        out = csv.writer(fh)
+        out.writerow(CSV_FIELDS)
+        for v in rows:
+            m = v.message
+            out.writerow([
+                m.folder, m.uid, m.date.date().isoformat() if m.date else "",
+                "yes" if m.is_unread else "", "yes" if m.is_flagged else "",
+                "junk" if v.is_junk else "keep", v.score,
+                m.from_address, m.from_display, m.subject,
+                "; ".join(v.reasons), "; ".join(v.protections),
+            ])
+    return path
 
 
 def _threshold(cfg: Config, args) -> int:
@@ -369,6 +398,14 @@ def _threshold(cfg: Config, args) -> int:
 
 def _destination(cfg: Config, args) -> str:
     return "the Bin" if cfg.destination == "trash" else "the Junk folder"
+
+
+def _destination_label(box: Mailbox, cfg: Config) -> str:
+    """What the server actually calls it: 'Deleted', '[Gmail]/Bin', 'Trash' ..."""
+    try:
+        return _resolve_destination(box, cfg)
+    except ImapError:
+        return _destination(cfg, None)
 
 
 def _resolve_destination(box: Mailbox, cfg: Config) -> str:

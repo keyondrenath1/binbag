@@ -11,6 +11,7 @@ binbag.report.html
 binbag.demo.html
 binbagdemoreport.html
 *.report.html
+*.csv
 
 # Python
 __pycache__/
