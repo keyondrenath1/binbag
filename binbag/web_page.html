@@ -3,283 +3,473 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>binbag</title>
 <style>
   :root {
-    --bg: #f7f5f1; --fg: #1c1b19; --muted: #6b6862; --line: #e3dfd8; --card: #ffffff;
-    --accent: #b4472a; --accent-ink: #ffffff; --good: #3f6d4e; --soft: #f0ece5; --warn: #8a5a12;
+    --paper: #eef0ec; --surface: #f8f9f6; --ink: #16181b; --mute: #5f6560; --rule: #d6dad3;
+    --sack: #16181b; --sack-ink: #f8f9f6; --hivis: #f5c518; --hivis-ink: #16181b;
+    --keep: #2e7d4f; --keep-soft: #dcebe1; --bin-soft: #e3e5e1; --err: #b83a14; --err-soft: #f6e1d8;
+    --focus: #1d5fd1;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #14130f; --fg: #eceae4; --muted: #9a968c; --line: #2d2b25; --card: #1c1a15;
-      --accent: #e0724f; --accent-ink: #1c1b19; --good: #7fb392; --soft: #24221c; --warn: #e0b45f;
+      --paper: #121416; --surface: #191c1f; --ink: #e8eae6; --mute: #9aa19b; --rule: #2a2f2c;
+      --sack: #e8eae6; --sack-ink: #121416; --hivis: #f5c518; --hivis-ink: #16181b;
+      --keep: #6cc08e; --keep-soft: #1d2e24; --bin-soft: #24282b; --err: #ff8a5c; --err-soft: #3a2219;
+      --focus: #7aa8ff;
     }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg);
-         font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
-  main { max-width: 980px; margin: 0 auto; padding: 1.5rem 1rem 7rem; }
-  header { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
-  .mark { font-weight: 750; font-size: 1.35rem; letter-spacing: -.03em; }
-  .acct { color: var(--muted); font-size: .9rem; flex: 1; min-width: 12rem; }
-  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--fg);
-           border-radius: 8px; padding: .38rem .7rem; cursor: pointer; }
-  button:hover { border-color: var(--muted); }
-  button:disabled { opacity: .45; cursor: default; }
-  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
-  button.small { font-size: .8rem; padding: .22rem .5rem; }
-  .pill { font-size: .78rem; padding: .15rem .55rem; border-radius: 99px; background: var(--soft); color: var(--muted); }
-  .pill.busy { color: var(--warn); }
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .6rem; margin-bottom: 1.25rem; }
-  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .75rem .9rem; }
-  .stat b { display: block; font-size: 1.5rem; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-  .stat span { color: var(--muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .06em; }
-  .toolbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: .75rem; }
-  .tabs button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
-  input[type=search], input[type=date] { font: inherit; border: 1px solid var(--line); background: var(--card);
-           color: var(--fg); border-radius: 8px; padding: .36rem .6rem; }
-  input[type=search] { flex: 1; min-width: 12rem; }
-  select { font: inherit; font-size: .85rem; border: 1px solid var(--line); background: var(--card); color: var(--fg);
-           border-radius: 8px; padding: .3rem .5rem; max-width: 16rem; }
-  .empty, .log { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1.25rem; color: var(--muted); }
-  .log { font: .82rem/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; margin-bottom: 1rem; }
-  .err { color: var(--accent); }
-  .row { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-bottom: .45rem; }
-  .head { display: grid; grid-template-columns: 4.2rem 1fr auto; gap: .75rem; align-items: center; padding: .65rem .85rem; cursor: pointer; }
-  .count { text-align: right; font-variant-numeric: tabular-nums; }
-  .count b { color: var(--accent); font-size: 1.05rem; }
-  .count small { display: block; color: var(--muted); font-size: .74rem; }
-  .who { min-width: 0; }
-  .who .name { font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .who .addr, .who .why { color: var(--muted); font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chip { display: inline-block; font-size: .72rem; padding: .05rem .45rem; border-radius: 99px; margin-left: .35rem;
-          border: 1px solid var(--line); color: var(--muted); vertical-align: 1px; }
-  .chip.block { color: var(--accent); border-color: var(--accent); }
-  .chip.allow { color: var(--good); border-color: var(--good); }
-  .chip.expire { color: var(--warn); border-color: var(--warn); }
-  .acts { display: flex; gap: .3rem; flex-wrap: wrap; justify-content: flex-end; }
-  .body { border-top: 1px solid var(--line); padding: .6rem .85rem .85rem 5.6rem; }
-  .expire { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin-bottom: .6rem; font-size: .85rem; color: var(--muted); }
-  ul.msgs { list-style: none; margin: 0; padding: 0; }
-  ul.msgs li { display: grid; grid-template-columns: 6.2rem 1fr auto; gap: .6rem; padding: .32rem 0; border-top: 1px solid var(--line); font-size: .86rem; }
-  ul.msgs li:first-child { border-top: 0; }
-  .d { color: var(--muted); font-variant-numeric: tabular-nums; }
-  .tag { font-size: .72rem; }
-  .tag.j { color: var(--accent); } .tag.k { color: var(--good); }
-  .sub small { display: block; color: var(--muted); font-size: .76rem; }
-  .more { text-align: center; margin: 1rem 0; }
-  footer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--line); }
-  footer .in { max-width: 980px; margin: 0 auto; padding: .8rem 1rem; display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
-  footer .note { color: var(--muted); font-size: .85rem; flex: 1; min-width: 14rem; }
-  a { color: var(--accent); }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+         font: 16px/1.5 "Avenir Next", Avenir, "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
+         font-feature-settings: "tnum" 1; }
+  main { max-width: 920px; margin: 0 auto; padding: 1.25rem 1rem 9rem; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:disabled { cursor: default; opacity: .45; }
+  a { color: inherit; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* top bar */
+  .top { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; padding-bottom: 1rem; border-bottom: 1px solid var(--rule); }
+  .logo { font-weight: 800; font-size: 1.15rem; letter-spacing: -.02em; display: flex; align-items: center; gap: .45rem; }
+  .logo svg { width: 22px; height: 22px; }
+  .who { color: var(--mute); font-size: .92rem; flex: 1; min-width: 10rem; }
+  select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: .35rem .55rem; }
+  .btn { border: 1px solid var(--rule); background: var(--surface); border-radius: 8px; padding: .45rem .85rem; font-weight: 600; }
+  .btn:hover:not(:disabled) { border-color: var(--mute); }
+  .btn.dark { background: var(--sack); color: var(--sack-ink); border-color: var(--sack); }
+  .btn.quiet { border-color: transparent; background: transparent; text-decoration: underline; text-underline-offset: 3px; padding: .45rem .4rem; font-weight: 500; }
+
+  /* the sentence that leads the page */
+  .lead { margin: 2rem 0 .4rem; font-size: clamp(1.45rem, 3.4vw, 2.1rem); line-height: 1.2; font-weight: 500; letter-spacing: -.02em; max-width: 30ch; }
+  .lead b { font-weight: 800; }
+  .lead .zero { color: var(--keep); }
+  .sub { color: var(--mute); margin: 0 0 1.5rem; max-width: 62ch; }
+
+  /* banners: errors, progress, results */
+  .banner { border-radius: 10px; padding: .85rem 1rem; margin: 0 0 1.25rem; display: flex; gap: .75rem; align-items: flex-start; }
+  .banner.err { background: var(--err-soft); color: var(--err); }
+  .banner.ok { background: var(--keep-soft); color: var(--keep); }
+  .banner .msg { flex: 1; }
+  .banner .msg b { display: block; }
+  .bar { height: 6px; background: var(--rule); border-radius: 99px; overflow: hidden; margin-top: .6rem; }
+  .bar i { display: block; height: 100%; background: var(--sack); width: 0; transition: width .4s ease; }
+  .bar.indet i { width: 35%; animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+  @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } .bar.indet i { animation: none; width: 100%; opacity: .4; } }
+
+  /* first run */
+  .start { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 1.5rem; margin-top: 1.5rem; }
+  .start ol { margin: .5rem 0 1.25rem; padding-left: 1.2rem; color: var(--mute); }
+  .start ol li { margin: .3rem 0; }
+  .start ol b { color: var(--ink); font-weight: 600; }
+
+  /* controls above the list */
+  .controls { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; margin: 0 0 .5rem; }
+  .tabs { display: inline-flex; background: var(--bin-soft); border-radius: 9px; padding: 3px; }
+  .tabs button { border: 0; background: transparent; border-radius: 7px; padding: .35rem .75rem; font-weight: 600; font-size: .92rem; color: var(--mute); }
+  .tabs button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .tabs .n { font-weight: 500; margin-left: .3rem; }
+  input[type=search] { flex: 1; min-width: 12rem; font: inherit; color: var(--ink); background: var(--surface);
+                       border: 1px solid var(--rule); border-radius: 9px; padding: .45rem .75rem; }
+  .hint { color: var(--mute); font-size: .85rem; margin: 0 0 1rem; }
+
+  /* the sender list */
+  .list { border-top: 1px solid var(--rule); }
+  .sender { border-bottom: 1px solid var(--rule); }
+  .line { display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: center; padding: .8rem 0; }
+  .expand { all: unset; cursor: pointer; display: grid; grid-template-columns: 1.1rem 1fr; gap: .4rem; min-width: 0; border-radius: 6px; }
+  .expand:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+  .caret { color: var(--mute); transition: transform .15s; display: inline-flex; width: 1rem; height: 1.5rem;
+           align-items: center; justify-content: center; transform-origin: 50% 50%; font-size: 1.1rem; line-height: 1; }
+  .sender.open .caret { transform: rotate(90deg); }
+  .name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: var(--mute); font-size: .86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fate { font-size: .86rem; margin-top: .1rem; }
+  .fate.bin { color: var(--ink); } .fate.keep { color: var(--keep); } .fate.mixed { color: var(--ink); }
+  .fate .why { color: var(--mute); }
+  .note { font-size: .78rem; color: var(--mute); }
+
+  /* Keep / Auto / Bin switch */
+  .switch { display: inline-flex; border: 1px solid var(--rule); border-radius: 9px; overflow: hidden; background: var(--surface); }
+  .switch button { border: 0; background: transparent; padding: .38rem .7rem; font-size: .88rem; font-weight: 600; color: var(--mute); }
+  .switch button + button { border-left: 1px solid var(--rule); }
+  .switch button[aria-pressed="true"].k { background: var(--keep); color: #fff; }
+  .switch button[aria-pressed="true"].a { background: var(--bin-soft); color: var(--ink); }
+  .switch button[aria-pressed="true"].b { background: var(--sack); color: var(--sack-ink); }
+  .switch.locked { opacity: .6; }
+
+  .detail { padding: 0 0 1rem 1.5rem; }
+  .opts { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .9rem; font-size: .9rem; }
+  .opts .label { color: var(--mute); margin-right: .2rem; }
+  .chipbtn { border: 1px solid var(--rule); background: var(--surface); border-radius: 99px; padding: .25rem .7rem; font-size: .85rem; }
+  .chipbtn:hover { border-color: var(--mute); }
+  .chipbtn.on { background: var(--sack); color: var(--sack-ink); border-color: var(--sack); }
+  input[type=date] { font: inherit; font-size: .85rem; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 99px; padding: .2rem .6rem; }
+  .msgs { list-style: none; margin: 0; padding: 0; font-size: .9rem; }
+  .msgs li { display: grid; grid-template-columns: 6.5rem 1fr auto; gap: .75rem; padding: .4rem 0; border-top: 1px dashed var(--rule); }
+  .msgs .d { color: var(--mute); }
+  .msgs .s small { display: block; color: var(--mute); font-size: .78rem; }
+  .tag { font-size: .78rem; font-weight: 600; padding: .05rem .45rem; border-radius: 99px; align-self: start; }
+  .tag.b { background: var(--sack); color: var(--sack-ink); } .tag.k { background: var(--keep-soft); color: var(--keep); }
+  .more { margin: 1.25rem 0; text-align: center; }
+  .empty { color: var(--mute); padding: 2rem 0; text-align: center; }
+
+  /* the one loud thing: the hi-vis bar */
+  .dock { position: fixed; left: 0; right: 0; bottom: 0; background: var(--hivis); color: var(--hivis-ink);
+          box-shadow: 0 -2px 0 rgba(0,0,0,.08); transform: translateY(110%); transition: transform .25s ease; }
+  .dock.show { transform: none; }
+  @media (prefers-reduced-motion: reduce) { .dock { transition: none; } }
+  .dock .in { max-width: 920px; margin: 0 auto; padding: .85rem 1rem; display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+  .dock .txt { flex: 1; min-width: 14rem; font-size: .95rem; }
+  .dock .txt b { font-weight: 800; }
+  .dock .btn { border-color: var(--hivis-ink); }
+  .dock .btn.dark { background: #16181b; color: #f8f9f6; border-color: #16181b; }
+  .dock .btn.ghost { background: transparent; }
+
+  .toast { position: fixed; left: 50%; bottom: 5.5rem; transform: translateX(-50%); background: var(--sack); color: var(--sack-ink);
+           padding: .6rem .9rem; border-radius: 10px; display: flex; gap: .9rem; align-items: center; font-size: .92rem; max-width: calc(100% - 2rem); z-index: 5; }
+  .toast button { background: transparent; border: 0; color: var(--hivis); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+
   @media (max-width: 640px) {
-    .head { grid-template-columns: 3.2rem 1fr; }
-    .acts { grid-column: 1 / -1; justify-content: flex-start; }
-    .body { padding-left: .85rem; }
-    ul.msgs li { grid-template-columns: 1fr; gap: .1rem; }
+    .line { grid-template-columns: 1fr; gap: .5rem; }
+    .switch { justify-self: start; margin-left: 1.5rem; }
+    .detail { padding-left: 0; }
+    .msgs li { grid-template-columns: 1fr auto; }
+    .msgs .d { grid-column: 1 / -1; }
   }
 </style>
 </head>
 <body>
 <main>
-  <header>
-    <span class="mark">binbag</span>
-    <span class="acct" id="acct"></span>
-    <span class="pill" id="status">idle</span>
-    <button class="primary" id="scan">Scan inbox</button>
-  </header>
-
-  <div class="stats" id="stats"></div>
-  <div id="logbox"></div>
-
-  <div class="toolbar">
-    <div class="tabs" role="group" aria-label="Show">
-      <button data-tab="junk" aria-pressed="true">To bin</button>
-      <button data-tab="kept" aria-pressed="false">Kept</button>
-      <button data-tab="all" aria-pressed="false">All</button>
-    </div>
-    <input type="search" id="q" placeholder="Filter by sender or subject" aria-label="Filter">
+  <div class="top">
+    <span class="logo" aria-label="binbag">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3.5c0-.8.7-1.5 1.5-1.5h3c.8 0 1.5.7 1.5 1.5V5h3.5a1 1 0 1 1 0 2h-.6l-1 12.2A3 3 0 0 1 13.9 22h-3.8a3 3 0 0 1-3-2.8L6.1 7h-.6a1 1 0 1 1 0-2H9V3.5ZM11 5h2V4h-2v1Z"/></svg>
+      binbag
+    </span>
+    <label class="visually-hidden" for="acctsel">Account</label>
+    <select id="acctsel" hidden></select>
+    <span class="who" id="who"></span>
+    <button class="btn dark" id="scan">Scan inbox</button>
   </div>
 
-  <div id="list"></div>
+  <div id="banner" role="status" aria-live="polite"></div>
+  <div id="lead"></div>
+  <div id="body"></div>
 </main>
 
-<footer>
-  <div class="in">
-    <span class="note" id="footnote">Nothing moves until you press the button. Moved mail goes to your Bin and can be restored.</span>
-    <span id="confirm"></span>
-    <button class="primary" id="move" disabled>Move junk to the Bin</button>
-  </div>
-</footer>
+<div class="dock" id="dock" aria-live="polite"><div class="in" id="dockin"></div></div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script>
 "use strict";
 const TOKEN = "__TOKEN__";
 const $ = (id) => document.getElementById(id);
-let S = null, tab = "junk", q = "", open = new Set(), shown = 150, timer = null;
+let S = null, ACCT = null, tab = "bin", q = "", open = new Set(), shown = 120, timer = null, confirming = false, offline = false;
 
-function el(tag, attrs = {}, ...kids) {
+function h(tag, attrs = {}, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
+    if (v === null || v === undefined || v === false) continue;
     if (k === "class") e.className = v;
     else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
-    else if (v !== null && v !== undefined && v !== false) e.setAttribute(k, v);
+    else e.setAttribute(k, v === true ? "" : v);
   }
   for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false)
     e.append(k instanceof Node ? k : document.createTextNode(String(k)));
   return e;
 }
 const n = (x) => Number(x || 0).toLocaleString("en-GB");
+const plural = (x, one, many) => `${n(x)} ${x === 1 ? one : (many || one + "s")}`;
+const cap = (t) => t ? t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? "" : ".") : "";
 
 async function api(path, body) {
   const opts = { headers: { "X-Binbag-Token": TOKEN } };
-  if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  if (body !== undefined) {
+    opts.method = "POST"; opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(ACCT ? { account: ACCT, ...body } : body);
+  } else if (ACCT) path += "?account=" + encodeURIComponent(ACCT);
   const r = await fetch(path, opts);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  if (!r.ok) throw new Error(data.error || "Something went wrong (HTTP " + r.status + ").");
   return data;
 }
 
 async function refresh() {
-  try { S = await api("/api/state"); render(); }
-  catch (e) { $("status").textContent = "disconnected"; }
+  try { S = await api("/api/state"); ACCT = S.account; offline = false; render(); }
+  catch (e) { offline = true; renderOffline(); }
   clearTimeout(timer);
-  if (S && (S.status === "scanning" || S.status === "moving")) timer = setTimeout(refresh, 1000);
+  if (offline) timer = setTimeout(refresh, 3000);
+  else if (S && (busy() || S.busy_elsewhere)) timer = setTimeout(refresh, 700);
+}
+const busy = () => S && (S.status === "scanning" || S.status === "moving");
+
+function renderOffline() {
+  $("banner").replaceChildren(h("div", { class: "banner err" }, h("div", { class: "msg" },
+    h("b", {}, "binbag has stopped."), "Run binbag serve in your terminal again, then this page reconnects by itself.")));
+  $("dock").classList.remove("show");
+  $("scan").disabled = true;
 }
 
 function render() {
-  $("acct").textContent = S.account + " · " + S.folders.join(", ") + (S.scanned_at ? " · scanned " + S.scanned_at : "");
-  const busy = S.status === "scanning" || S.status === "moving";
-  $("status").textContent = S.status === "idle" ? (S.scanned_at ? "ready" : "not scanned yet") : S.status;
-  $("status").className = "pill" + (busy ? " busy" : "");
-  $("scan").disabled = busy;
-  $("scan").textContent = S.scanned_at ? "Rescan" : "Scan inbox";
+  // top bar
+  const sel = $("acctsel");
+  sel.hidden = S.accounts.length < 2;
+  if (!sel.hidden) sel.replaceChildren(...S.accounts.map((a) => h("option", { value: a.name, selected: a.name === S.account },
+    a.name + (a.status === "scanning" ? " (scanning)" : a.status === "moving" ? " (moving)" : a.scanned ? ` (${n(a.junk)} to bin)` : ""))));
+  $("who").textContent = S.username + (S.scanned_at ? `, scanned at ${S.scanned_at}` : "");
+  $("scan").disabled = busy() || S.busy_elsewhere;
+  $("scan").textContent = S.status === "scanning" ? "Scanning..." : S.scanned_at ? "Scan again" : "Scan inbox";
 
-  const t = S.totals;
-  $("stats").replaceChildren(
-    stat(n(t.scanned), "scanned"), stat(n(t.junk), "to bin"), stat(n(t.kept), "kept"), stat(n(t.unread), "unread"),
-    stat(n(S.senders.length), "senders"));
+  renderBanner();
+  renderLead();
+  renderBody();
+  renderDock();
+}
 
-  const lb = $("logbox");
-  if (busy || S.error) {
-    lb.replaceChildren(el("div", { class: "log" }, S.error ? el("span", { class: "err" }, S.error) : S.log.join("\n") || "Starting ..."));
-  } else lb.replaceChildren();
+function renderBanner() {
+  const b = $("banner");
+  if (S.error) {
+    b.replaceChildren(h("div", { class: "banner err" }, h("div", { class: "msg" }, h("b", {}, "That didn't work."), S.error)));
+  } else if (S.status === "scanning") {
+    const p = S.progress || {};
+    const pct = p.total ? Math.round(100 * p.done / p.total) : 0;
+    const what = p.stage === "reading" && p.total
+      ? `Reading ${p.folder}: ${n(p.done)} of ${n(p.total)} messages`
+      : "Connecting and checking who you write to";
+    b.replaceChildren(h("div", { class: "banner", style: "background:var(--surface);border:1px solid var(--rule)" },
+      h("div", { class: "msg" }, h("b", {}, what), h("span", { class: "note" }, "Headers only. Nothing is changed while binbag reads."),
+        h("div", { class: "bar" + (p.total ? "" : " indet") }, h("i", { style: `width:${pct}%` })))));
+  } else if (S.status === "moving") {
+    b.replaceChildren(h("div", { class: "banner", style: "background:var(--surface);border:1px solid var(--rule)" },
+      h("div", { class: "msg" }, h("b", {}, `Moving ${plural(S.progress && S.progress.total, "message")} to your Bin`),
+        h("span", { class: "note" }, "Keep this page open until it finishes."), h("div", { class: "bar indet" }, h("i")))));
+  } else if (S.busy_elsewhere) {
+    b.replaceChildren(h("div", { class: "banner", style: "background:var(--surface);border:1px solid var(--rule)" },
+      h("div", { class: "msg" }, h("b", {}, "Another account is busy."), "binbag works on one mailbox at a time. This one is ready when that finishes.")));
+  } else if (S.last_move) {
+    const m = S.last_move;
+    b.replaceChildren(h("div", { class: "banner ok" }, h("div", { class: "msg" },
+      h("b", {}, `Moved ${plural(m.moved, "message")} to ${m.dest}.`),
+      m.skipped.length ? `${m.skipped.join(", ")} was skipped because the server renumbered it. Scan again to pick it up.`
+                       : `Changed your mind? Drag them back from ${m.dest} in your mail app; they stay there until you empty it.`)));
+  } else b.replaceChildren();
+}
 
-  const mv = $("move");
-  mv.disabled = busy || !t.junk;
-  mv.textContent = t.junk ? `Move ${n(t.junk)} to the Bin` : "Nothing to move";
-  if (S.last_move && !busy) {
-    $("footnote").textContent = `Moved ${n(S.last_move.moved)} to ${S.last_move.dest}.` +
-      (S.last_move.skipped.length ? ` Skipped ${S.last_move.skipped.join(", ")}: rescan it.` : " Restore from there if anything shouldn't have gone.");
+function renderLead() {
+  const L = $("lead");
+  if (!S.scanned_at) { L.replaceChildren(); return; }
+  const t = S.totals, senders = S.senders.filter((s) => s.junk > 0).length;
+  L.replaceChildren(
+    t.junk
+      ? h("p", { class: "lead" }, h("b", {}, n(t.junk)), ` ${t.junk === 1 ? "message" : "messages"} from `, h("b", {}, n(senders)),
+          ` ${senders === 1 ? "sender is" : "senders are"} going in the bin.`)
+      : h("p", { class: "lead" }, h("b", { class: "zero" }, "Nothing to bin."), " Your inbox is clean."),
+    t.junk
+      ? h("p", { class: "sub" }, `binbag checked ${plural(t.scanned, "message")} and is keeping ${n(t.kept)}. `,
+          "Look through the senders below and switch any of them to Keep or Bin; the numbers update straight away. Nothing moves until you press the yellow button.")
+      : h("p", { class: "sub" }, `binbag checked ${plural(t.scanned, "message")} and is keeping all of them. `,
+          "New junk shows up here next time you scan. The Kept tab shows what's staying and why."));
+}
+
+function renderBody() {
+  const B = $("body");
+  if (!S.scanned_at) {
+    if (S.status === "scanning") { B.replaceChildren(); return; }
+    B.replaceChildren(h("section", { class: "start" },
+      h("p", { style: "margin:0;font-size:1.2rem;font-weight:650" }, "Find out who's filling your inbox."),
+      h("ol", {},
+        h("li", {}, h("b", {}, "Scan."), " binbag reads the headers of every message (never the contents) and works out which are junk."),
+        h("li", {}, h("b", {}, "Review."), " See each sender, why it's junk, and switch anything to Keep or Bin."),
+        h("li", {}, h("b", {}, "Move."), " One button moves the junk to your Bin, where you can still restore it.")),
+      h("button", { class: "btn dark", onclick: scan, disabled: busy() || S.busy_elsewhere }, "Scan inbox")));
+    return;
   }
+  const binCount = S.senders.filter((s) => s.junk > 0).length;
+  const keepCount = S.senders.filter((s) => s.junk < s.total).length;
+  const tabs = h("div", { class: "tabs", role: "group", "aria-label": "Show senders" },
+    tabBtn("bin", "Going in the bin", binCount), tabBtn("keep", "Kept", keepCount), tabBtn("all", "All", S.senders.length));
+  const search = h("input", { type: "search", id: "q", placeholder: "Search senders and subjects", value: q, "aria-label": "Search senders and subjects",
+    oninput: (e) => { q = e.target.value.trim(); shown = 120; renderList(); } });
+  B.replaceChildren(
+    h("div", { class: "controls" }, tabs, search),
+    h("p", { class: "hint" }, "Keep and Bin always win for that sender. Auto lets binbag decide, message by message."),
+    h("div", { class: "list", id: "list" }));
   renderList();
 }
 
-function stat(v, label) { return el("div", { class: "stat" }, el("b", {}, v), el("span", {}, label)); }
+function tabBtn(id, label, count) {
+  return h("button", { "aria-pressed": String(tab === id), onclick: () => { tab = id; shown = 120; renderBody(); } },
+    label, h("span", { class: "n" }, n(count)));
+}
 
-function renderList() {
-  const list = $("list");
-  if (!S.scanned_at && !S.senders.length) {
-    list.replaceChildren(el("div", { class: "empty" },
-      "Press Scan inbox. binbag reads message headers only, changes nothing, and shows you who's filling your inbox."));
-    return;
-  }
-  let rows = S.senders.filter((s) => tab === "all" || (tab === "junk" ? s.junk > 0 : s.junk < s.total));
+function visibleSenders() {
+  let rows = S.senders.filter((s) => tab === "all" || (tab === "bin" ? s.junk > 0 : s.junk < s.total));
   if (q) {
     const needle = q.toLowerCase();
     rows = rows.filter((s) => (s.display + " " + s.address).toLowerCase().includes(needle) ||
       s.messages.some((m) => m.subject.toLowerCase().includes(needle)));
   }
-  if (!rows.length) { list.replaceChildren(el("div", { class: "empty" }, tab === "junk" ? "Nothing to bin." : "Nothing here.")); return; }
-  const frag = rows.slice(0, shown).map(senderRow);
-  if (rows.length > shown) frag.push(el("div", { class: "more" },
-    el("button", { onclick: () => { shown += 150; renderList(); } }, `Show more (${n(rows.length - shown)} left)`)));
-  list.replaceChildren(...frag);
+  return rows;
 }
 
-function ruleChip(r) {
+function renderList() {
+  const list = $("list"); if (!list) return;
+  const rows = visibleSenders();
+  if (!rows.length) {
+    const toKept = h("button", { class: "btn quiet", onclick: () => { tab = "keep"; renderBody(); } }, "See what's kept");
+    list.replaceChildren(h("div", { class: "empty" },
+      q ? `No senders match “${q}”.` : tab === "bin" ? h("span", {}, "Nothing is going in the bin. ", toKept) : "Nothing here."));
+    return;
+  }
+  const items = rows.slice(0, shown).map(senderRow);
+  if (rows.length > shown) items.push(h("div", { class: "more" },
+    h("button", { class: "btn", onclick: () => { shown += 120; renderList(); } }, `Show ${n(Math.min(120, rows.length - shown))} more senders`)));
+  list.replaceChildren(...items);
+}
+
+function fateLine(s) {
+  if (s.junk === s.total) return h("div", { class: "fate bin" }, s.total === 1 ? "Going in the bin. " : `All ${n(s.total)} going in the bin. `, h("span", { class: "why" }, cap(s.why)));
+  if (s.junk === 0) return h("div", { class: "fate keep" }, s.total === 1 ? "Kept. " : `All ${n(s.total)} kept. `, h("span", { class: "why" }, cap(s.keep_why)));
+  return h("div", { class: "fate mixed" }, `${n(s.junk)} of ${n(s.total)} going in the bin. `, h("span", { class: "why" }, cap(s.why)));
+}
+
+function ruleNote(r) {
   if (!r) return null;
-  let text = r.kind === "block" ? "always bin" : r.kind === "allow" ? "always keep" : "bin if older than " + (r.before || (r.older_than_days + " days"));
-  if (r.sender && r.sender.indexOf("@") < 0) text += " · " + r.sender;
-  if (r.source === "config") text += " · binbag.toml";
-  return el("span", { class: "chip " + r.kind, title: r.source === "config" ? "Set in binbag.toml; edit it there" : "Set here" }, text);
+  const scope = r.sender.includes("@") ? "" : ` for everyone at ${r.sender}`;
+  const what = r.kind === "block" ? "Always binned" : r.kind === "allow" ? "Always kept"
+    : r.before ? `Anything from before ${fmtDate(r.before)} is binned; newer mail follows Auto`
+    : `Anything over ${age(r.older_than_days)} old is binned; newer mail follows Auto`;
+  return h("div", { class: "note" }, what + scope + (r.source === "config" ? ". Set in binbag.toml, so change it there." : "."));
+}
+const age = (d) => ({ 90: "3 months", 180: "6 months", 365: "a year", 730: "2 years" }[d] || `${d} days`);
+const fmtDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+function switchFor(s) {
+  const r = s.rule, locked = r && r.source === "config";
+  const state = !r ? "auto" : r.kind === "block" ? "bin" : r.kind === "allow" ? "keep" : "auto";
+  const target = r && !locked ? r.sender : s.address;
+  const btn = (key, cls, label, fn) => h("button", { class: cls, "aria-pressed": String(state === key), disabled: locked || null,
+    title: locked ? "Set in binbag.toml" : null, onclick: fn }, label);
+  return h("div", { class: "switch" + (locked ? " locked" : ""), role: "group", "aria-label": `What to do with ${s.display}` },
+    btn("keep", "k", "Keep", () => setRule("allow", target, `${s.display} will always be kept.`)),
+    btn("auto", "a", "Auto", () => r && setRule("clear", r.sender, `binbag decides for ${s.display} again.`)),
+    btn("bin", "b", "Bin", () => setRule("block", target, `${s.display} will always go in the bin.`)));
 }
 
 function senderRow(s) {
   const isOpen = open.has(s.address);
-  const browserRule = s.rule && s.rule.source === "browser";
-  const acts = el("div", { class: "acts" },
-    s.unsubscribe ? el("a", { href: s.unsubscribe, target: "_blank", rel: "noopener noreferrer", class: "small", style: "font-size:.8rem;align-self:center;margin-right:.3rem" }, "unsubscribe") : null,
-    el("button", { class: "small", onclick: (e) => { e.stopPropagation(); setRule("block", s.address); } }, "Bin all"),
-    s.domain ? el("button", { class: "small", title: "Every address at " + s.domain, onclick: (e) => { e.stopPropagation(); setRule("block", s.domain); } }, "Bin domain") : null,
-    el("button", { class: "small", onclick: (e) => { e.stopPropagation(); setRule("allow", s.address); } }, "Keep"),
-    browserRule ? el("button", { class: "small", onclick: (e) => { e.stopPropagation(); setRule("clear", s.rule.sender); } }, "Undo") : null);
-
-  const head = el("div", { class: "head", onclick: () => { isOpen ? open.delete(s.address) : open.add(s.address); renderList(); } },
-    el("div", { class: "count" }, el("b", {}, n(s.junk)), el("small", {}, "of " + n(s.total))),
-    el("div", { class: "who" },
-      el("div", { class: "name" }, s.display, ruleChip(s.rule)),
-      el("div", { class: "addr" }, s.address + (s.oldest ? `  ·  ${s.oldest} to ${s.newest}` : "")),
-      el("div", { class: "why" }, s.junk ? s.why : "kept: " + s.keep_why)),
-    acts);
-  const row = el("div", { class: "row" }, head);
-  if (isOpen) {
-    const date = el("input", { type: "date", "aria-label": "Bin mail older than" });
-    const body = el("div", { class: "body" },
-      el("div", { class: "expire" }, "Keep recent mail, bin anything from ",
-        el("select", { id: "scope-" + btoa(unescape(encodeURIComponent(s.address))).replace(/=/g, "") },
-          el("option", { value: s.address }, "this address"),
-          s.domain ? el("option", { value: s.domain }, "all of " + s.domain) : null),
-        " sent before ", date,
-        el("button", { class: "small", onclick: (e) => {
-          const sel = e.target.parentNode.querySelector("select");
-          if (!date.value) { date.focus(); return; }
-          setRule("expire", sel.value, { before: date.value });
-        } }, "Set")),
-      el("ul", { class: "msgs" }, s.messages.map((m) => el("li", {},
-        el("span", { class: "d" }, m.date),
-        el("span", { class: "sub" }, m.subject, el("small", {}, m.why)),
-        el("span", { class: "tag " + (m.junk ? "j" : "k") }, m.junk ? "bin" : "keep")))),
-      s.total > s.messages.length ? el("div", { class: "d", style: "font-size:.8rem;margin-top:.4rem" }, `Newest ${s.messages.length} of ${n(s.total)} shown.`) : null);
-    row.append(body);
-  }
+  const id = "d-" + Math.abs(hash(s.address));
+  const toggle = () => { isOpen ? open.delete(s.address) : open.add(s.address); renderList();
+    const again = document.querySelector(`[aria-controls="${id}"]`); if (again) again.focus(); };
+  const row = h("div", { class: "sender" + (isOpen ? " open" : "") },
+    h("div", { class: "line" },
+      h("button", { class: "expand", "aria-expanded": String(isOpen), "aria-controls": id, onclick: toggle },
+        h("span", { class: "caret", "aria-hidden": "true" }, "›"),
+        h("span", { style: "min-width:0" },
+          h("div", { class: "name" }, s.display),
+          h("div", { class: "meta" }, s.address + (s.oldest ? `, ${fmtDate(s.oldest)} to ${fmtDate(s.newest)}` : "")),
+          fateLine(s), ruleNote(s.rule))),
+      switchFor(s)));
+  if (isOpen) row.append(detail(s, id));
   return row;
 }
 
-async function setRule(kind, sender, extra = {}) {
-  try { S = await api("/api/rule", { kind, sender, ...extra }); render(); }
-  catch (e) { alertInline(e.message); }
+function detail(s, id) {
+  const r = s.rule, locked = r && r.source === "config";
+  const dom = s.domain;
+  const date = h("input", { type: "date", "aria-label": "Bin anything sent before this date" });
+  const older = (days, label) => h("button", { class: "chipbtn" + (r && r.kind === "expire" && r.older_than_days === days ? " on" : ""), disabled: locked || null,
+    onclick: () => setRule("expire", s.address, `${s.display}: anything over ${age(days)} old will be binned.`, { older_than_days: days }) }, label);
+  const opts = [];
+  if (!locked) {
+    opts.push(h("div", { class: "opts" }, h("span", { class: "label" }, "Clear out the backlog: bin anything older than"),
+      older(90, "3 months"), older(365, "1 year"), older(730, "2 years"),
+      h("span", { class: "label" }, "or before"), date,
+      h("button", { class: "chipbtn", onclick: () => { if (!date.value) { date.focus(); return; }
+        setRule("expire", s.address, `${s.display}: anything from before ${fmtDate(date.value)} will be binned.`, { before: date.value }); } }, "Set")));
+    if (dom && dom !== s.address) opts.push(h("div", { class: "opts" }, h("span", { class: "label" }, `Everyone at ${dom}:`),
+      h("button", { class: "chipbtn", onclick: () => setRule("allow", dom, `Everything from ${dom} will be kept.`) }, "Always keep"),
+      h("button", { class: "chipbtn", onclick: () => setRule("block", dom, `Everything from ${dom} will go in the bin.`) }, "Always bin")));
+    if (s.unsubscribe && s.junk) opts.push(h("div", { class: "opts" }, h("span", { class: "label" }, "Stop it at the source:"),
+      h("a", { href: s.unsubscribe, target: "_blank", rel: "noopener noreferrer" }, "Unsubscribe on their site"),
+      h("span", { class: "note" }, "Opens the sender's own page.")));
+  }
+  return h("div", { class: "detail", id },
+    ...opts,
+    h("ul", { class: "msgs", "aria-label": `Recent messages from ${s.display}` }, s.messages.map((m) => h("li", {},
+      h("span", { class: "d" }, m.date ? fmtDate(m.date) : ""),
+      h("span", { class: "s" }, m.subject, h("small", {}, cap(m.why))),
+      h("span", { class: "tag " + (m.junk ? "b" : "k") }, m.junk ? "Bin" : "Keep")))),
+    s.total > s.messages.length ? h("p", { class: "note" }, `Showing the newest ${n(s.messages.length)} of ${n(s.total)}.`) : null);
 }
 
-function alertInline(msg) {
-  $("logbox").replaceChildren(el("div", { class: "log" }, el("span", { class: "err" }, msg)));
+function renderDock() {
+  const d = $("dock"), inn = $("dockin");
+  const junk = S.totals.junk;
+  const show = !!(S.scanned_at && junk && !busy() && !S.busy_elsewhere);
+  d.classList.toggle("show", show);
+  if (!show) { confirming = false; return; }
+  if (confirming) {
+    inn.replaceChildren(
+      h("span", { class: "txt" }, h("b", {}, `Move ${plural(junk, "message")} to your Bin?`), " They stay there, restorable, until you empty it."),
+      h("button", { class: "btn ghost", onclick: () => { confirming = false; renderDock(); } }, "Cancel"),
+      h("button", { class: "btn dark", id: "doMove", onclick: () => move(junk) }, `Yes, move ${n(junk)}`));
+    setTimeout(() => { const b = $("doMove"); if (b) b.focus(); }, 0);
+  } else {
+    inn.replaceChildren(
+      h("span", { class: "txt" }, h("b", {}, plural(junk, "message")), " ready for the bin."),
+      h("button", { class: "btn dark", onclick: () => { confirming = true; renderDock(); } }, `Move ${n(junk)} to the Bin`));
+  }
 }
 
-$("scan").addEventListener("click", async () => {
-  try { await api("/api/scan", {}); } catch (e) { alertInline(e.message); }
+let toastTimer = null;
+function toast(msg, undo) {
+  const t = $("toast");
+  t.replaceChildren(h("div", { class: "toast" }, h("span", {}, msg), undo ? h("button", { onclick: () => { t.replaceChildren(); undo(); } }, "Undo") : null));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.replaceChildren(), 6000);
+}
+
+async function setRule(kind, sender, message, extra = {}) {
+  const before = S.senders.find((s) => s.rule && s.rule.sender === sender && s.rule.source === "browser");
+  const previous = before ? { ...before.rule } : null;
+  try {
+    S = await api("/api/rule", { kind, sender, ...extra }); render();
+    toast(message, async () => {
+      if (previous) {
+        const ex = previous.kind === "expire" ? (previous.before ? { before: previous.before } : { older_than_days: previous.older_than_days }) : {};
+        S = await api("/api/rule", { kind: previous.kind, sender, ...ex });
+      } else S = await api("/api/rule", { kind: "clear", sender });
+      render();
+    });
+  } catch (e) { toast(e.message); }
+}
+
+async function scan() {
+  try { await api("/api/scan", {}); } catch (e) { toast(e.message); }
   refresh();
+}
+
+async function move(expected) {
+  confirming = false;
+  try { await api("/api/clean", { expected }); } catch (e) { toast(e.message); }
+  refresh();
+}
+
+function hash(str) { let x = 0; for (let i = 0; i < str.length; i++) x = (x * 31 + str.charCodeAt(i)) | 0; return x; }
+
+$("scan").addEventListener("click", scan);
+$("acctsel").addEventListener("change", (e) => {
+  ACCT = e.target.value; open.clear(); shown = 120; q = ""; confirming = false; refresh();
 });
-
-$("move").addEventListener("click", () => {
-  const count = S.totals.junk;
-  $("move").hidden = true;
-  $("confirm").replaceChildren(
-    el("span", { style: "margin-right:.5rem" }, `Move ${n(count)} messages to the Bin?`),
-    el("button", { class: "primary", onclick: async () => {
-      $("confirm").replaceChildren(); $("move").hidden = false;
-      try { await api("/api/clean", { expected: count }); } catch (e) { alertInline(e.message); }
-      refresh();
-    } }, "Yes, move them"),
-    el("button", { style: "margin-left:.4rem", onclick: () => { $("confirm").replaceChildren(); $("move").hidden = false; } }, "Cancel"));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement.tagName !== "INPUT") { const s = $("q"); if (s) { e.preventDefault(); s.focus(); } }
+  if (e.key === "Escape" && confirming) { confirming = false; renderDock(); }
 });
-
-document.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => {
-  tab = b.dataset.tab; shown = 150;
-  document.querySelectorAll("[data-tab]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-  renderList();
-}));
-$("q").addEventListener("input", (e) => { q = e.target.value.trim(); shown = 150; renderList(); });
-
 refresh();
 </script>
 </body>

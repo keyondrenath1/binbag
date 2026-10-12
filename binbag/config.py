@@ -48,6 +48,12 @@ class Account:
     oauth_tenant: str = "consumers"
     #: OAuth2 only: where the refresh token lives. Never inside the repo.
     token_file: str = ""
+    #: A short label for this account, e.g. "personal" or "work". Defaults to
+    #: the username. Pick one with `-a NAME`.
+    name: str = ""
+    #: Per-account overrides of [rules] folders and the top-level destination.
+    folders: List[str] = field(default_factory=list)
+    destination: str = ""
 
     @property
     def token_path(self) -> Path:
@@ -141,6 +147,8 @@ class Config:
     destination: str = "trash"
     #: The file this config came from, when loaded from disk.
     path: Optional[Path] = None
+    #: Every account in the file. `account` is the one selected for this run.
+    accounts: List[Account] = field(default_factory=list)
 
     @property
     def rules_path(self) -> Optional[Path]:
@@ -150,11 +158,11 @@ class Config:
         return rules_path_for(self.path) if self.path else None
 
     @classmethod
-    def load(cls, path: Optional[Path] = None) -> "Config":
+    def load(cls, path: Optional[Path] = None, account: Optional[str] = None) -> "Config":
         path = _resolve_path(path)
         with path.open("rb") as fh:
             raw = tomllib.load(fh)
-        cfg = cls.from_dict(raw)
+        cfg = cls.from_dict(raw, account)
         cfg.path = path.resolve()
         cfg._merge_rule_file()
         return cfg
@@ -178,36 +186,21 @@ class Config:
         self.rules.expire = [e for e in self.rules.expire if e.sender not in overridden] + expire
 
     @classmethod
-    def from_dict(cls, raw: Dict[str, Any]) -> "Config":
-        acct_raw = dict(raw.get("account", {}))
-        provider = str(acct_raw.pop("provider", "")).lower()
-        provider = PROVIDER_ALIASES.get(provider, provider)
-        if provider:
-            if provider not in PROVIDERS:
-                raise ConfigError(
-                    f"Unknown provider {provider!r}. Known: {', '.join(sorted(PROVIDERS))}. "
-                    "Or drop `provider` and set `host` yourself."
-                )
-            for key, value in PROVIDERS[provider].items():
-                acct_raw.setdefault(key, value)
-        if not acct_raw.get("host"):
-            raise ConfigError("account.host (or account.provider) is required.")
-        if not acct_raw.get("username"):
-            raise ConfigError("account.username is required.")
-
-        account = Account(
-            host=str(acct_raw["host"]),
-            port=int(acct_raw.get("port", 993)),
-            username=str(acct_raw["username"]),
-            password_env=str(acct_raw.get("password_env", "BINBAG_PASSWORD")),
-            starttls=bool(acct_raw.get("starttls", False)),
-            auth=str(acct_raw.get("auth", "password")).lower(),
-            oauth_client_id=str(acct_raw.get("oauth_client_id", "")).strip(),
-            oauth_tenant=str(acct_raw.get("oauth_tenant", "consumers")).strip() or "consumers",
-            token_file=str(acct_raw.get("token_file", "")),
-        )
-        if account.auth not in AUTH_METHODS:
-            raise ConfigError("account.auth must be 'password' or 'oauth2'.")
+    def from_dict(cls, raw: Dict[str, Any], account_name: Optional[str] = None) -> "Config":
+        if "accounts" in raw and "account" in raw:
+            raise ConfigError("Use either [account] or [[accounts]], not both.")
+        if "accounts" in raw:
+            entries = raw["accounts"]
+            if not isinstance(entries, list) or not entries:
+                raise ConfigError("[[accounts]] needs at least one account.")
+            accounts = [_parse_account(dict(e), multi=True) for e in entries]
+        else:
+            accounts = [_parse_account(dict(raw.get("account", {})), multi=False)]
+        names = [a.name.lower() for a in accounts]
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        if dupes:
+            raise ConfigError(f"Two accounts share the name {dupes[0]!r}. Give each a unique `name`.")
+        account = _select_account(accounts, account_name)
 
         r = raw.get("rules", {})
         rules = Rules(
@@ -223,11 +216,70 @@ class Config:
             expire=[_parse_expire(e) for e in r.get("expire", [])],
         )
 
-        destination = str(raw.get("destination", "trash")).lower()
+        destination = str(account.destination or raw.get("destination", "trash")).lower()
         if destination not in {"trash", "junk"}:
             raise ConfigError("destination must be 'trash' or 'junk'.")
+        if account.folders:
+            rules.folders = list(account.folders)
 
-        return cls(account=account, rules=rules, destination=destination)
+        return cls(account=account, rules=rules, destination=destination, accounts=accounts)
+
+
+def _parse_account(acct_raw: Dict[str, Any], multi: bool) -> Account:
+    where = "[[accounts]]" if multi else "[account]"
+    provider = str(acct_raw.pop("provider", "")).lower()
+    provider = PROVIDER_ALIASES.get(provider, provider)
+    if provider:
+        if provider not in PROVIDERS:
+            raise ConfigError(
+                f"Unknown provider {provider!r}. Known: {', '.join(sorted(PROVIDERS))}. "
+                "Or drop `provider` and set `host` yourself."
+            )
+        for key, value in PROVIDERS[provider].items():
+            acct_raw.setdefault(key, value)
+    if not acct_raw.get("host"):
+        raise ConfigError(f"{where} host (or provider) is required.")
+    if not acct_raw.get("username"):
+        raise ConfigError(f"{where} username is required." if multi else "account.username is required.")
+
+    username = str(acct_raw["username"])
+    name = str(acct_raw.get("name") or username).strip()
+    # One shared BINBAG_PASSWORD can't serve two accounts, so with several
+    # accounts each gets its own variable unless one is set explicitly:
+    # name "work" -> BINBAG_PASSWORD_WORK.
+    default_env = "BINBAG_PASSWORD"
+    if multi:
+        default_env += "_" + "".join(c if c.isalnum() else "_" for c in name).upper()
+    account = Account(
+        host=str(acct_raw["host"]),
+        port=int(acct_raw.get("port", 993)),
+        username=username,
+        password_env=str(acct_raw.get("password_env", default_env)),
+        starttls=bool(acct_raw.get("starttls", False)),
+        auth=str(acct_raw.get("auth", "password")).lower(),
+        oauth_client_id=str(acct_raw.get("oauth_client_id", "")).strip(),
+        oauth_tenant=str(acct_raw.get("oauth_tenant", "consumers")).strip() or "consumers",
+        token_file=str(acct_raw.get("token_file", "")),
+        name=name,
+        folders=[str(f) for f in acct_raw.get("folders", [])],
+        destination=str(acct_raw.get("destination", "")).lower(),
+    )
+    if account.auth not in AUTH_METHODS:
+        raise ConfigError("account.auth must be 'password' or 'oauth2'.")
+    if account.destination and account.destination not in {"trash", "junk"}:
+        raise ConfigError("destination must be 'trash' or 'junk'.")
+    return account
+
+
+def _select_account(accounts: List[Account], wanted: Optional[str]) -> Account:
+    if not wanted:
+        return accounts[0]
+    w = wanted.lower().strip()
+    for a in accounts:
+        if a.name.lower() == w or a.username.lower() == w:
+            return a
+    known = ", ".join(a.name for a in accounts)
+    raise ConfigError(f"No account called {wanted!r}. This config has: {known}.")
 
 
 def _parse_expire(raw: Any) -> ExpireRule:

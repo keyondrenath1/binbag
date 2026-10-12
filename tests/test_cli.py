@@ -39,8 +39,11 @@ class FakeBox:
         self.server["searches"].append(criteria)
         return [m.uid for m in self.server["messages"]]
 
-    def fetch_headers(self, uids):
-        return [m for m in self.server["messages"] if m.uid in uids]
+    def fetch_headers(self, uids, progress=None):
+        found = [m for m in self.server["messages"] if m.uid in uids]
+        if progress:
+            progress(len(found), len(found))
+        return found
 
     def gmail_categories(self):
         return self.server.get("categories", {})

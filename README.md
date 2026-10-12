@@ -1,26 +1,24 @@
 # binbag
 
-Find the junk in your mailbox and bin it, from the terminal. Dry run by default, and it never erases anything.
+Find the junk in your mailbox and bin it, from your own computer. You see exactly what will go and why before anything moves, and nothing is ever erased: junk goes to your Bin, where you can still restore it.
+
+It works with Gmail, iCloud, Outlook, Hotmail, Yahoo, Fastmail and anything else that speaks IMAP, and the results show up on every device, phone included, because it cleans the mailbox itself rather than one app's view of it.
 
 ```
-  Scanned 4,182 messages
-  Junk    1,946  (score >= 60)
-  Keeping 2,236
+  74 messages from 7 senders are going in the bin.
 
-  Worst offenders
-  --------------------------------------------------------------
-    214  LinkedIn <notifications-noreply@linkedin.com>
-    167  Groupon <deals@r.groupon.com>
-     98  Medium Daily Digest <noreply@medium.com>
+  Gym Chain        All 14 going in the bin. Has an unsubscribe link, so it's bulk mail.   [Keep | Auto | Bin]
+  LinkedIn         All 13 going in the bin. Has an unsubscribe link, so it's bulk mail.   [Keep | Auto | Bin]
+  Wine Club        3 of 7 going in the bin.                                               [Keep | Auto | Bin]
 ```
 
-## Why this exists
+## Getting started, step by step
 
-The Mail app on an iPhone is a closed box. Nothing can reach inside it. What it *is* showing you is an IMAP account, and IMAP has been an open protocol since 1986. Clean the account and the phone catches up in seconds, because the phone was only ever a window onto it.
+You'll need a Mac, Linux or Windows machine with **Python 3.11 or newer**, and about ten minutes (twenty for Outlook or Hotmail, which needs a one-off Microsoft setup).
 
-So binbag talks to Gmail, iCloud, Outlook, Yahoo, Fastmail or anything else that speaks IMAP, and the results appear on every device you own.
+### Step 1. Install binbag
 
-## Install
+Open a terminal and run:
 
 ```bash
 git clone https://github.com/keyondrenath1/binbag
@@ -30,131 +28,189 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-Python 3.11 or newer. No dependencies: everything it needs is in the standard library. The virtual environment keeps it away from any other Python on your machine (conda, Homebrew, the system one), which is the usual cause of `command not found` or "requires a different Python". In a new terminal, `source .venv/bin/activate` again before running `binbag`.
+Check it worked with `binbag --version`.
 
-## Try it without connecting anything
+The `.venv` line gives binbag its own copy of Python, so it can't clash with conda, Homebrew or anything else on your machine. **In every new terminal window, run `cd binbag` and `source .venv/bin/activate` before using binbag.** If you ever see `command not found: binbag`, that step was skipped.
 
-```bash
-binbag demo
-```
+On Windows, use `py -m venv .venv` and `.venv\Scripts\activate` instead.
 
-That scores a fake mailbox and writes `binbag.demo.html`. Open it, see how the scoring reads, decide whether you trust it. Nothing touches the network.
+### Step 2. Create your config file
 
-## Point it at a real mailbox
+Pick your provider and put in your own address:
 
 ```bash
 binbag init --provider gmail --username you@gmail.com
-export BINBAG_PASSWORD='xxxx xxxx xxxx xxxx'
-binbag scan
 ```
 
-You need an **app-specific password**, not your normal one, and two-factor authentication switched on:
+Providers: `gmail`, `icloud`, `outlook` (also `hotmail`, `live`, `msn`), `yahoo`, `fastmail`, `proton`. This writes `binbag.toml` in the current folder. It never contains a password, and it's in `.gitignore`.
 
-| Provider | Where |
-|---|---|
-| Gmail | [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) |
-| iCloud | account.apple.com → Sign-In and Security → App-Specific Passwords |
-| Yahoo | Account Security → Generate app password |
-| Outlook, Hotmail, Live | No app passwords any more: use OAuth2, [below](#outlook-and-hotmail) |
+### Step 3. Let binbag into your mailbox
 
-`binbag scan` changes nothing. It reads headers, scores everything, prints a summary and writes `binbag.report.html` grouped by sender with unsubscribe links. Read it. Adjust. Then:
+Your normal password won't work here. Follow the section for your provider.
+
+#### Gmail
+
+1. Turn on 2-Step Verification if it isn't already: [myaccount.google.com/security](https://myaccount.google.com/security).
+2. Create an app password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords). Call it `binbag`. Google shows a 16-character password once: copy it.
+3. In your terminal:
+
+   ```bash
+   export BINBAG_PASSWORD='abcd efgh ijkl mnop'
+   ```
+
+   That lasts until you close the terminal. To make it permanent, add the same line to `~/.zshrc` (Mac) or `~/.bashrc` (Linux).
+
+#### iCloud
+
+1. Two-factor authentication must be on (it is for almost every Apple Account).
+2. Go to [account.apple.com](https://account.apple.com), open **Sign-In and Security**, then **App-Specific Passwords**, and create one called `binbag`.
+3. `export BINBAG_PASSWORD='xxxx-xxxx-xxxx-xxxx'`
+
+#### Yahoo
+
+1. Go to **Account Security** in your Yahoo account settings and choose **Generate app password**. Call it `binbag`.
+2. `export BINBAG_PASSWORD='the app password'`
+
+#### Fastmail
+
+1. In Fastmail, go to **Settings**, then **Privacy & Security**, and create an app password with IMAP access.
+2. `export BINBAG_PASSWORD='the app password'`
+
+#### Outlook, Hotmail, Live and MSN
+
+Microsoft switched off passwords and app passwords for these accounts in September 2024, so binbag signs in with Microsoft's own login instead. You need a free Microsoft "app registration" first. It sounds technical; it's a form with four fields.
+
+1. **Get into the Azure portal.** Go to [portal.azure.com](https://portal.azure.com) and sign in with your Outlook or Hotmail address. If you see an error mentioning `AADSTS16000` or "does not exist in tenant", your account needs a free Azure account first: sign up at [azure.microsoft.com/free](https://azure.microsoft.com/free) and choose **Try Azure for free** (it asks for a card to check your identity; the free account has a spending limit, so it isn't charged). Then go back to the portal.
+2. **Register binbag.** Search the top bar for **App registrations**, choose **New registration**, name it `binbag`, and under **Supported account types** pick **Personal accounts only** (or an option that includes personal accounts, if you also want a work mailbox). Leave the redirect URI empty and press **Register**.
+3. **Copy the ID.** On the page that opens, copy the **Application (client) ID**. It isn't a password; it just names your registration.
+4. **Allow sign-in from a terminal.** In the left menu, open **Manage**, then **Authentication**. Set **Allow public client flows** to **Yes** and press **Save**. Skip this and step 6 fails with `unauthorized_client`.
+5. **Put the ID in your config.** Open `binbag.toml` and paste it between the quotes on the `oauth_client_id` line.
+6. **Sign in:**
+
+   ```bash
+   binbag login
+   ```
+
+   It shows a link and a short code. Open the link in any browser, type the code, sign in, and allow access to your mail. binbag saves the sign-in to `~/.config/binbag/tokens/`, readable only by you, and renews it by itself from then on.
+
+You can ignore any Azure notices about multifactor authentication or "elevated access". They're about Azure's own tools, not binbag. Never press **Upgrade** on the free account; binbag needs nothing paid.
+
+### Step 4. Check the connection
 
 ```bash
-binbag clean --apply
+binbag folders
 ```
 
-## Outlook and Hotmail
+You should see your folders, with your Bin listed next to **Bin/Trash**. If you get an error instead, see [Troubleshooting](#troubleshooting).
 
-Microsoft switched off password and app-password IMAP logins for Outlook.com, Hotmail and Live addresses on 16 September 2024. The only way in now is OAuth2, which binbag does with Microsoft's device code sign-in: it prints a short code, you enter it on a Microsoft page in any browser, and binbag never sees your password.
-
-You need your own free Azure app registration. It takes about five minutes, once:
-
-1. Go to [portal.azure.com](https://portal.azure.com), sign in with any Microsoft account, open **App registrations** and choose **New registration**.
-2. Name it `binbag`. Under **Supported account types** pick **Personal Microsoft accounts only** (or a multi-tenant option that includes personal accounts if you also want a work mailbox). Leave the redirect URI empty. Register.
-3. Copy the **Application (client) ID** from the overview page.
-4. Open **Authentication**, set **Allow public client flows** to **Yes**, and save.
-
-No API permissions need adding: binbag asks for IMAP access when you sign in, and you approve it there. If the portal says your account has no directory to register apps in, create a free Azure account first.
-
-Then:
-
-```bash
-binbag init --provider hotmail --username you@hotmail.co.uk
-# paste the client ID into oauth_client_id in binbag.toml
-binbag login
-binbag scan
-```
-
-`binbag login` saves a refresh token to `~/.config/binbag/tokens/`, readable by you only and never inside the repo. binbag refreshes it on its own after that. If it ever stops working (you changed your password, or revoked access at account.microsoft.com), run `binbag login` again.
-
-For a Microsoft 365 work or school mailbox, set `oauth_tenant = "organizations"` or your tenant ID. Your IT admin may need to approve the app.
-
-## In your browser
+### Step 5. See what's junk
 
 ```bash
 binbag serve
 ```
 
-Opens binbag at `http://127.0.0.1:8765/`. Press **Scan inbox** and you get every sender grouped and ranked, with what binbag would bin and why. Per sender: **Bin all**, **Bin domain**, **Keep**, or open it and **keep recent mail, bin anything sent before** a date. Every change re-scores instantly, without re-reading your mailbox. When the list looks right, **Move to the Bin** asks once and does it.
+Your browser opens binbag. Press **Scan inbox**. binbag reads the headers of every message (never the contents), which takes a minute or two for a few thousand, and changes nothing while it does.
 
-It's still entirely local. The server only listens on your own machine, every request needs a one-time token baked into the page, and it rejects requests addressed to any other hostname, so no website you have open can reach it. Rules you set in the browser are saved to `binbag.rules.toml` beside your config (git-ignored, plain TOML, safe to edit or delete), and your hand-written `binbag.toml` is never rewritten.
+You'll get a list of senders, biggest offenders first, each with what binbag plans to do and why. For each sender pick:
 
-## Commands
+- **Keep**: always keep everything from them.
+- **Auto**: let binbag judge each message (the default).
+- **Bin**: always bin everything from them.
+
+Click a sender to open it and you can also:
+
+- **Clear out the backlog.** Bin anything from them older than 3 months, a year, 2 years or a date you pick. Perfect for receipts: keep this year's, bin the rest.
+- **Apply to their whole domain.** Everyone at `shop.example.com`, not just one address.
+- **Unsubscribe** at the source, using the sender's own link.
+
+Every change updates the numbers straight away, and the little message that appears has an **Undo**.
+
+### Step 6. Move the junk
+
+When the list looks right, press the yellow **Move to the Bin** button and confirm. Everything goes to your mail's Bin (or Deleted Items, or Trash, whatever your provider calls it). It's still there if you change your mind: drag it back in your mail app.
+
+### Step 7. Empty your Bin when you're happy
+
+binbag never empties it for you. Give it a day or two, then empty it in your mail app. That's also when your storage frees up.
+
+## Doing it from the terminal instead
+
+Everything the browser page does is also a command:
 
 ```
-binbag demo                    fake mailbox, no credentials, see the output shape
-binbag init                    write a starter binbag.toml
-binbag login                   sign in to Outlook/Hotmail with OAuth2, once
-binbag serve                   the whole thing in your browser, still local
+binbag scan                    score everything, write binbag.report.html, change nothing
+binbag scan --csv all.csv      also export every message's verdict to a spreadsheet
+binbag clean --apply           move the junk to the Bin (asks first; add -y to skip the question)
+binbag senders -n 40           who sends the most, with unsubscribe links
 binbag folders                 what your server calls the Bin, Sent and Junk
-binbag scan                    score everything, write a report, change nothing
-binbag clean --apply           move the junk to the Bin
-binbag senders -n 40           who is filling your inbox, with unsubscribe links
+binbag accounts                list your accounts and whether they're signed in
+binbag login                   sign in to Outlook/Hotmail, once
+binbag demo                    try it on a fake mailbox, no account needed
 ```
 
-Useful flags: `--csv all.csv` writes every message's verdict, kept and junk, to a spreadsheet you can sort and filter. `--threshold 45` bins more, `--threshold 75` bins less. `--folder "Archive"` (repeatable) widens the sweep. By default every message in the folder is scanned, however old; `--last-days 90` narrows it. `--limit 500` for a cautious first run.
+Useful options: `--threshold 45` bins more, `--threshold 75` bins less. `--last-days 90` only looks at recent mail (the default is all of it). `--limit 500` for a cautious first run. `--folder "Archive"` scans another folder (repeat it for several).
 
-## How it decides
+A sensible first run from the terminal:
 
-Two separate mechanisms, and the difference matters.
-
-**Signals** add up to a score out of 100. An unsubscribe header is worth 40, because mail carrying one was sent to a list. Gmail's own Promotions label is worth 35. Sending infrastructure like Mailchimp or SendGrid in the envelope, 20. Marketing language in the subject, up to 24. Never opened and three months old, 25. Volume from a sender you've never once replied to, up to 12. Anything at or above your threshold is junk.
-
-**Protections** override the score entirely. Flagged. Replied to. From someone in your Sent folder. On your allowlist. Under a few days old. Or, most importantly, transactional: a subject containing *receipt*, *your order*, *booking*, *verification code*, *statement*, *renewal* and about seventy other phrases. A dispatch note from a shop arrives through the same marketing platform as their sale emails and carries the same unsubscribe header. Scoring alone would bin it. Protections mean it can't be.
-
-The bias is deliberate and asymmetric: keeping a newsletter you didn't want costs you two seconds, binning a booking confirmation costs you a flight.
-
-Before scoring anything, binbag reads your Sent folder and builds a list of everyone you've actually written to. Those people become untouchable. It's the single strongest signal available and it costs one folder read.
-
-**Expire rules** are the third mechanism, for senders whose recent mail you want and whose back catalogue you don't. An expire rule bins a sender's mail once it's older than a date or an age, *even if it looks transactional*: that's what it's for. Your own actions still win: a flagged message, or one you replied to, is never expired.
-
-```toml
-[[rules.expire]]
-sender = "amazon.co.uk"      # a domain covers its subdomains: shipment-tracking@, auto-confirm@, ...
-before = 2024-01-01
-
-[[rules.expire]]
-sender = "uber.com"
-older_than_days = 365        # rolling: always keeps the last year
-
-[[rules.expire]]
-sender = "alerts@bank.example"   # or one exact address
-older_than_days = 730
+```bash
+binbag scan --limit 500
+open binbag.report.html      # Linux: xdg-open
 ```
 
-The full order of precedence: blocklist, then flagged or replied to, then expire rules, then the other protections, then the score.
+## More than one mailbox
 
-## The safety rails
+Say you've set up Hotmail and now want Gmail too.
 
-- **Nothing is erased, ever.** Junk is *moved* to the Bin. There is exactly one mutating method in the codebase and it issues `UID MOVE`. Restore anything for as long as your provider keeps deleted mail, which is usually 30 days.
-- **No `CLOSE`, ever.** IMAP's `CLOSE` on a folder opened for writing silently expunges everything flagged as deleted, including mail another app flagged and hasn't purged. binbag leaves folders with `UNSELECT`, or simply logs out, and a test fails if `CLOSE` ever creeps back in.
-- **UIDs are checked before moving.** A scan records each folder's `UIDVALIDITY`. If the server has renumbered the folder by the time you `clean`, that folder is skipped rather than risk moving the wrong messages.
-- **Dry run by default.** `clean` without `--apply` reports and stops. With `--apply` it still asks before moving, unless you pass `--yes`.
-- **Headers only.** Message bodies are never downloaded. Faster, and it keeps the blast radius of any bug very small.
-- **Read-only unless moving.** Folders are opened read-only for every scan; the move path is the only thing that opens one for writing, and it refuses to run against a read-only handle.
-- **Your password never enters the repo.** It's read from an environment variable, and OAuth tokens live in `~/.config/binbag/tokens/` with owner-only permissions. `binbag.toml` and generated reports are in `.gitignore`.
+1. Open `binbag.toml`. Change the line `[account]` to `[[accounts]]` and add `name = "hotmail"` underneath it.
+2. Add a block for the new mailbox, above `[rules]`:
 
-## Config
+   ```toml
+   [[accounts]]
+   name = "gmail"
+   provider = "gmail"
+   username = "you@gmail.com"
+   ```
+
+3. Create a Gmail app password as in [Step 3](#gmail), then give it to binbag under that account's own name:
+
+   ```bash
+   export BINBAG_PASSWORD_GMAIL='abcd efgh ijkl mnop'
+   ```
+
+4. Check both are ready with `binbag accounts`, then run `binbag serve`. A menu at the top switches between mailboxes.
+
+The first account in the file is the default. Pick another anywhere with `-a`: `binbag scan -a gmail`, `binbag login -a hotmail`. Each mailbox is scanned and cleaned on its own, and nothing ever moves between them. Your rules (Keep, Bin, backlog clear-outs) apply to every mailbox, because a newsletter is junk wherever it lands.
+
+With several accounts, each app password lives in `BINBAG_PASSWORD_<NAME>` (the account's name in capitals), unless you set `password_env` yourself. Each account can also have its own `folders` and `destination`.
+
+## How binbag decides
+
+Every message gets a score from signals. Anything at or above the threshold (60 by default) is junk:
+
+| Signal | Points |
+|---|---|
+| Has an unsubscribe link (it was sent to a list) | 40 |
+| Gmail put it in Promotions / Social / Forums | 35 / 25 / 20 |
+| Sent to a mailing list, or marked bulk | 20 / 15 |
+| Sent through a bulk platform (Mailchimp, SendGrid, ...) | 20 |
+| Marketing words in the subject | up to 24 |
+| Never opened and over 3 months / 1 month old | 25 / 15 |
+| Lots of mail from a sender you've never replied to | up to 12 |
+| From a no-reply style address | 12 |
+| Subject uses look-alike letters to dodge filters ("ᑭaid", "eIigible") | 50 |
+| You've written to someone at that organisation | minus 25 |
+
+Some things **protect** a message outright, whatever the score: anything you flagged or starred, replied to, sent by someone you've emailed (binbag reads your Sent folder to learn who), on your Keep list, under 3 days old, or with a subject that looks like a receipt, order, booking, delivery, statement, bill, security code or anything else you'd regret losing.
+
+Some things **bin** a message outright: senders you've set to Bin, backlog clear-outs once mail passes the age you chose, senders whose address is unreadable garbage (always a spoof), and strangers on Gmail or Hotmail addresses sending sales pitches stamped with random anti-filter tags.
+
+The order, so there are no surprises: **Bin** rules first (the one thing that overrides a flag, so use them for senders you never want), then anything you flagged or replied to, then spoofed senders, throwaway-account spam and backlog clear-outs, then the protections, then the score.
+
+The bias is deliberate: keeping a newsletter you didn't want costs you two seconds. Binning a booking confirmation costs you a flight.
+
+## Your config file
+
+`binbag init` writes this for you. Every key is optional apart from the account.
 
 ```toml
 [account]
@@ -162,47 +218,68 @@ provider = "gmail"
 username = "you@gmail.com"
 password_env = "BINBAG_PASSWORD"
 
-destination = "trash"      # or "junk"
+destination = "trash"          # or "junk" to send it to the spam folder instead
 
 [rules]
-threshold = 60             # lower bins more; 75 cautious, 45 brutal
-min_age_days = 3           # leave the last few days alone
+threshold = 60                 # lower bins more: 75 is cautious, 45 is brutal
+min_age_days = 3               # never touch the last few days
 folders = ["INBOX"]
 
-allow = ["hmrc.gov.uk", "school.example.com", "solicitor@firm.example"]
-block = ["nuisance-sender.example"]
+allow = ["hmrc.gov.uk", "school.example.com", "solicitor@firm.example"]   # always keep
+block = ["nuisance.example"]                                              # always bin
 
-learn_from_sent = true
+learn_from_sent = true         # protect everyone you've emailed
 sent_sample = 2000
 
 junk_subjects = ["your weekly horoscope"]
 keep_subjects = ["parents evening", "rent"]
 
-[[rules.expire]]
-sender = "amazon.co.uk"
-before = 2024-01-01
+[[rules.expire]]               # backlog clear-out: bin their mail once it's this old
+sender = "amazon.co.uk"        # a domain covers its subdomains too
+before = 2024-01-01            # or: older_than_days = 365
 ```
 
-For Outlook or Hotmail the `[account]` block looks like this instead:
+Changes you make in the browser are saved to `binbag.rules.toml` next to it, so your own `binbag.toml`, comments and all, is never rewritten. A rule set in the browser overrides the same sender in `binbag.toml`.
 
-```toml
-[account]
-provider = "hotmail"           # or outlook, live
-username = "you@hotmail.co.uk"
-auth = "oauth2"
-oauth_client_id = "00000000-0000-0000-0000-000000000000"
-oauth_tenant = "consumers"     # "organizations" for work or school
-```
+## The safety rails
 
-`allow` and `block` take whole domains or single addresses. `block` wins over everything, including the transactional protections, so use it sparingly.
+- **Nothing is erased, ever.** Junk is moved to your Bin with IMAP `MOVE`. There's exactly one place in the code that changes your mailbox, and tests fail if another appears.
+- **No `CLOSE`.** That IMAP command quietly erases mail other apps have marked for deletion. binbag never sends it, and a test makes sure.
+- **Headers only.** Message contents are never downloaded.
+- **Read-only until you say so.** Scans open folders read-only. Only the move opens one for writing.
+- **Checked before moving.** If your server renumbered a folder between the scan and the move, binbag skips that folder rather than risk moving the wrong messages.
+- **Your browser page is yours alone.** `binbag serve` only listens on your own computer, every request needs a one-time key baked into the page, and it ignores requests addressed to any other name. No website you have open can reach it.
+- **Nothing personal in the repo.** Passwords come from environment variables. Microsoft sign-ins live in `~/.config/binbag/tokens/`. Your config, browser rules, reports and CSVs are all in `.gitignore`.
 
-## A sensible first run
+## Troubleshooting
+
+**`command not found: binbag`.** You're in a terminal where binbag's environment isn't active. Run `cd binbag` then `source .venv/bin/activate`.
+
+**`requires a different Python: 3.10 not in '>=3.11'`.** Your `pip` belongs to an older Python (often conda's). Use the `python3 -m venv .venv` steps in [Step 1](#step-1-install-binbag), which build the environment from your newer Python.
+
+**`Login refused` on Gmail, iCloud or Yahoo.** You used your normal password, or 2-Step Verification is off. Create an app password ([Step 3](#step-3-let-binbag-into-your-mailbox)) and check it's in the right variable: `BINBAG_PASSWORD`, or `BINBAG_PASSWORD_<NAME>` with several accounts. `binbag accounts` shows which variable each account reads.
+
+**`Login refused` on Outlook or Hotmail.** Microsoft no longer accepts passwords there. Set `auth = "oauth2"` and follow [the Outlook steps](#outlook-hotmail-live-and-msn).
+
+**`AADSTS16000` when opening the Azure portal.** Your Microsoft account has no Azure directory yet. Create the free Azure account (step 1 of the Outlook section), then try again.
+
+**`unauthorized_client` or `invalid_client` during `binbag login`.** **Allow public client flows** isn't set to **Yes** on your app registration, or it was saved for the wrong account type. Fix it under **Authentication** and log in again.
+
+**`Your saved sign-in has expired` or `invalid_grant`.** You changed your Microsoft password or removed binbag's access. Run `binbag login` again.
+
+**`Could not find a trash folder`.** Run `binbag folders` to see what your server calls things, then set `destination` or check the folder exists.
+
+**The browser page says binbag has stopped.** The terminal running `binbag serve` was closed or stopped. Run it again; the page reconnects by itself.
+
+**Your mailbox is still full after a clean-up.** Moved mail still counts until you empty your Bin. Do that in your mail app once you're sure.
+
+## Try it without an account
 
 ```bash
-binbag scan --last-days 90 --limit 500 --threshold 70
+binbag demo
 ```
 
-Read the report. If the "close calls that were kept" table looks right and the junk list has no surprises in it, widen the net and lower the threshold. Once you trust it, `binbag clean --apply`.
+Scores a made-up mailbox and writes `binbag.demo.html`, so you can see how it judges things before pointing it at anything real.
 
 ## Tests
 
@@ -211,11 +288,11 @@ pip install -e '.[dev]'
 pytest
 ```
 
-The tests in `tests/test_rules.py`, `tests/test_safety.py` and `tests/test_mailbox.py` are the ones that matter. They assert that receipts, booking confirmations, verification codes, flagged mail and anyone you've ever emailed survive contact with the scorer even when every junk signal is firing at once. If those go red, the tool is dangerous, not merely broken.
+`tests/test_rules.py`, `tests/test_safety.py` and `tests/test_mailbox.py` are the ones that matter. They check that receipts, booking confirmations, security codes, flagged mail and anyone you've emailed survive even when every junk signal fires at once, and that nothing in the code can erase mail. If those fail, binbag is dangerous, not just broken.
 
 ## What it deliberately doesn't do
 
-OAuth only where the provider leaves no choice, which today means Microsoft; Gmail, iCloud, Yahoo and Fastmail all still take app passwords, so no Google Cloud project to set up. No message bodies, so no content-based classification and no AI in the loop. No permanent deletion. No background daemon. It's a thing you run, read, and act on.
+It doesn't read message contents, use AI, delete anything permanently, run in the background, or send your mail anywhere. It's a tool you run, read and act on.
 
 ## Licence
 

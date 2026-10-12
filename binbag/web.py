@@ -30,128 +30,195 @@ from .rulefile import RuleFile
 from .rules import Contacts, Scorer
 
 
-class State:
-    """Everything the page can see. One scan at a time; all access under a lock."""
+class Session:
+    """One account's scan: what was read, how it scored, what was moved."""
 
-    def __init__(self, config_path: Optional[Path]):
-        self.config_path = config_path
-        self.lock = threading.RLock()
+    def __init__(self) -> None:
         self.status = "idle"          # idle | scanning | moving | error
         self.error = ""
         self.log: List[str] = []
-        self.cfg: Optional[Config] = None
         self.messages: List[Message] = []
         self.contacts = Contacts()
         self.validity: Dict[str, Optional[int]] = {}
         self.verdicts: List[Verdict] = []
         self.scanned_at: Optional[str] = None
         self.last_move: Optional[Dict[str, Any]] = None
-        self.reload_config()
+        self.progress: Optional[Dict[str, Any]] = None
+
+    @property
+    def busy(self) -> bool:
+        return self.status in ("scanning", "moving")
+
+
+class State:
+    """Every account's session. Rules are shared across accounts: a newsletter
+    is junk whichever inbox it lands in. One mailbox job runs at a time."""
+
+    def __init__(self, config_path: Optional[Path], account: Optional[str] = None):
+        self.config_path = config_path
+        self.lock = threading.RLock()
+        base = Config.load(config_path, account)
+        self.names = [a.name for a in base.accounts]
+        self.first = base.account.name
+        self.sessions: Dict[str, Session] = {n: Session() for n in self.names}
 
     # -- config and rules -----------------------------------------------------
 
-    def reload_config(self) -> Config:
-        self.cfg = Config.load(self.config_path)
-        return self.cfg
+    def resolve(self, name: Optional[str]) -> str:
+        if not name:
+            return self.first
+        for n in self.names:
+            if n.lower() == str(name).lower():
+                return n
+        raise ConfigError(f"No account called {name!r}.")
+
+    def cfg(self, name: str) -> Config:
+        return Config.load(self.config_path, name)
 
     def rule_file(self) -> RuleFile:
-        assert self.cfg and self.cfg.rules_path
-        return RuleFile.load(self.cfg.rules_path)
+        cfg = self.cfg(self.first)
+        assert cfg.rules_path
+        return RuleFile.load(cfg.rules_path)
 
-    def rescore(self) -> None:
-        cfg = self.reload_config()
-        self.verdicts = Scorer(cfg.rules, self.contacts).judge_all(self.messages) if self.messages else []
+    def rescore(self, name: str) -> None:
+        sess = self.sessions[name]
+        cfg = self.cfg(name)
+        sess.verdicts = Scorer(cfg.rules, sess.contacts).judge_all(sess.messages) if sess.messages else []
+
+    def rescore_all(self) -> None:
+        for n in self.names:
+            if self.sessions[n].messages:
+                self.rescore(n)
+
+    @property
+    def busy(self) -> bool:
+        return any(s.busy for s in self.sessions.values())
 
     # -- long-running jobs ------------------------------------------------------
 
-    def say(self, *parts: Any) -> None:
-        line = " ".join(str(p) for p in parts).strip()
-        if line:
-            with self.lock:
-                self.log.append(line)
-                self.log = self.log[-200:]
+    def _say(self, name: str):
+        def say(*parts: Any) -> None:
+            line = " ".join(str(p) for p in parts).strip()
+            if line:
+                with self.lock:
+                    sess = self.sessions[name]
+                    sess.log.append(line)
+                    sess.log = sess.log[-200:]
+        return say
 
-    def start_scan(self, limit: int = 0, last_days: int = 0) -> bool:
+    def start_scan(self, name: str, limit: int = 0, last_days: int = 0) -> bool:
         with self.lock:
-            if self.status in ("scanning", "moving"):
+            if self.busy:
                 return False
-            self.status, self.error, self.log = "scanning", "", []
-        threading.Thread(target=self._scan, args=(limit, last_days), daemon=True).start()
+            sess = self.sessions[name]
+            sess.status, sess.error, sess.log = "scanning", "", []
+            sess.progress = {"stage": "connecting", "folder": "", "done": 0, "total": 0}
+        threading.Thread(target=self._scan, args=(name, limit, last_days), daemon=True).start()
         return True
 
-    def _scan(self, limit: int, last_days: int) -> None:
+    def _scan(self, name: str, limit: int, last_days: int) -> None:
         from .cli import MONTHS, fetch_mailbox
 
+        sess = self.sessions[name]
+        say = self._say(name)
         try:
-            cfg = self.reload_config()
+            cfg = self.cfg(name)
             criteria: List[str] = []
             if last_days > 0:
                 since = datetime.now() - timedelta(days=last_days)
                 criteria = ["SINCE", f"{since.day:02d}-{MONTHS[since.month - 1]}-{since.year}"]
             folders = cfg.rules.folders or ["INBOX"]
-            messages, contacts, validity = fetch_mailbox(cfg, folders, criteria, limit, self.say)
+
+            def progress(folder: str, done: int, total: int) -> None:
+                with self.lock:
+                    sess.progress = {"stage": "reading", "folder": folder, "done": done, "total": total}
+
+            messages, contacts, validity = fetch_mailbox(cfg, folders, criteria, limit, say, progress)
             with self.lock:
-                self.messages, self.contacts, self.validity = messages, contacts, validity
-                self.rescore()
-                self.scanned_at = datetime.now().strftime("%H:%M")
-                self.status = "idle"
-                self.say(f"  Scored {len(messages)} messages.")
+                sess.messages, sess.contacts, sess.validity = messages, contacts, validity
+                self.rescore(name)
+                sess.scanned_at = datetime.now().strftime("%H:%M")
+                sess.last_move = None
+                sess.progress = None
+                sess.status = "idle"
+                say(f"  Scored {len(messages)} messages.")
         except (ConfigError, ImapError, OSError) as exc:
             with self.lock:
-                self.status, self.error = "error", str(exc)
+                sess.status, sess.error, sess.progress = "error", str(exc), None
 
-    def start_move(self, expected: int) -> Optional[str]:
+    def start_move(self, name: str, expected: int) -> Optional[str]:
         with self.lock:
-            if self.status in ("scanning", "moving"):
+            if self.busy:
                 return "Busy: wait for the current job to finish."
-            junk = [v for v in self.verdicts if v.is_junk]
+            sess = self.sessions[name]
+            junk = [v for v in sess.verdicts if v.is_junk]
             if not junk:
                 return "Nothing to move."
             if expected != len(junk):
                 # The page was showing a different number from what would move.
                 return f"The junk count changed to {len(junk)}. Check the list and try again."
-            self.status, self.error = "moving", ""
-        threading.Thread(target=self._move, args=(junk,), daemon=True).start()
+            sess.status, sess.error = "moving", ""
+            sess.progress = {"stage": "moving", "folder": "", "done": 0, "total": len(junk)}
+        threading.Thread(target=self._move, args=(name, junk), daemon=True).start()
         return None
 
-    def _move(self, junk: List[Verdict]) -> None:
+    def _move(self, name: str, junk: List[Verdict]) -> None:
         from .cli import move_junk
 
+        sess = self.sessions[name]
+        say = self._say(name)
         try:
-            total, dest, skipped = move_junk(self.cfg, junk, self.validity, self.say)
+            total, dest, skipped = move_junk(self.cfg(name), junk, sess.validity, say)
             moved_ids = {(v.message.folder, v.message.uid) for v in junk if v.message.folder not in skipped}
             with self.lock:
-                self.messages = [m for m in self.messages if (m.folder, m.uid) not in moved_ids]
-                self.rescore()
-                self.last_move = {"moved": total, "dest": dest, "skipped": skipped}
-                self.status = "idle"
-                self.say(f"  Moved {total} to {dest}. Restore from there if needed.")
+                sess.messages = [m for m in sess.messages if (m.folder, m.uid) not in moved_ids]
+                self.rescore(name)
+                sess.last_move = {"moved": total, "dest": dest, "skipped": skipped,
+                                  "at": datetime.now().strftime("%H:%M")}
+                sess.progress = None
+                sess.status = "idle"
+                say(f"  Moved {total} to {dest}. Restore from there if needed.")
         except (ConfigError, ImapError, OSError) as exc:
             with self.lock:
-                self.status, self.error = "error", str(exc)
+                sess.status, sess.error, sess.progress = "error", str(exc), None
 
     # -- what the page renders --------------------------------------------------
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self, name: Optional[str] = None) -> Dict[str, Any]:
         with self.lock:
-            cfg = self.cfg
-            rf = self.rule_file() if cfg and cfg.rules_path else None
-            senders = _senders(self.verdicts, cfg, rf) if self.verdicts else []
-            junk = sum(1 for v in self.verdicts if v.is_junk)
+            name = self.resolve(name)
+            cfg = self.cfg(name)
+            sess = self.sessions[name]
+            rf = RuleFile.load(cfg.rules_path) if cfg.rules_path else None
+            senders = _senders(sess.verdicts, cfg, rf) if sess.verdicts else []
+            junk = sum(1 for v in sess.verdicts if v.is_junk)
+            accounts = []
+            for a in cfg.accounts:
+                s = self.sessions.get(a.name)
+                accounts.append({
+                    "name": a.name, "username": a.username,
+                    "scanned": bool(s and s.scanned_at),
+                    "junk": sum(1 for v in s.verdicts if v.is_junk) if s else 0,
+                    "status": s.status if s else "idle",
+                })
             return {
                 "version": __version__,
-                "account": cfg.account.username if cfg else "",
-                "folders": (cfg.rules.folders or ["INBOX"]) if cfg else [],
-                "threshold": cfg.rules.threshold if cfg else 60,
-                "status": self.status,
-                "error": self.error,
-                "log": self.log[-12:],
-                "scanned_at": self.scanned_at,
-                "totals": {"scanned": len(self.verdicts), "junk": junk, "kept": len(self.verdicts) - junk,
-                           "unread": sum(1 for v in self.verdicts if v.message.is_unread)},
+                "account": name,
+                "username": cfg.account.username,
+                "accounts": accounts,
+                "folders": cfg.rules.folders or ["INBOX"],
+                "threshold": cfg.rules.threshold,
+                "status": sess.status,
+                "busy_elsewhere": self.busy and not sess.busy,
+                "error": sess.error,
+                "log": sess.log[-12:],
+                "scanned_at": sess.scanned_at,
+                "totals": {"scanned": len(sess.verdicts), "junk": junk, "kept": len(sess.verdicts) - junk,
+                           "unread": sum(1 for v in sess.verdicts if v.message.is_unread)},
                 "senders": senders,
-                "last_move": self.last_move,
-                "rules_file": str(cfg.rules_path) if cfg and cfg.rules_path else "",
+                "last_move": sess.last_move,
+                "progress": sess.progress,
+                "rules_file": str(cfg.rules_path) if cfg.rules_path else "",
             }
 
 
@@ -275,10 +342,16 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             page = PAGE.replace("__TOKEN__", self.token)
             return self._send(200, page.encode(), "text/html; charset=utf-8")
-        if self.path == "/api/state":
+        if self.path.split("?")[0] == "/api/state":
             if not self._token_ok():
                 return self._json(403, {"error": "bad token"})
-            return self._json(200, self.state.snapshot())
+            from urllib.parse import parse_qs, urlparse
+
+            name = (parse_qs(urlparse(self.path).query).get("account") or [None])[0]
+            try:
+                return self._json(200, self.state.snapshot(name))
+            except ConfigError as exc:
+                return self._json(400, {"error": str(exc)})
         self._send(404, b"Not found", "text/plain")
 
     def do_POST(self):
@@ -289,10 +362,14 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError):
             return self._json(400, {"error": "bad request"})
         st = self.state
+        try:
+            name = st.resolve(body.get("account"))
+        except ConfigError as exc:
+            return self._json(400, {"error": str(exc)})
 
         if self.path == "/api/scan":
-            ok = st.start_scan(limit=int(body.get("limit") or 0), last_days=int(body.get("last_days") or 0))
-            return self._json(200 if ok else 409, {"ok": ok})
+            ok = st.start_scan(name, limit=int(body.get("limit") or 0), last_days=int(body.get("last_days") or 0))
+            return self._json(200 if ok else 409, {"ok": ok} if ok else {"error": "Busy: another scan or move is running."})
 
         if self.path == "/api/rule":
             sender = str(body.get("sender", "")).strip().lower()
@@ -300,8 +377,8 @@ class Handler(BaseHTTPRequestHandler):
             if not sender or len(sender) > 254 or any(c in sender for c in '"\n\r'):
                 return self._json(400, {"error": "bad sender"})
             with st.lock:
-                if st.status in ("scanning", "moving"):
-                    return self._json(409, {"error": "busy"})
+                if st.busy:
+                    return self._json(409, {"error": "Busy: wait for the current job to finish."})
                 rf = st.rule_file()
                 try:
                     if kind == "block":
@@ -319,27 +396,28 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         return self._json(400, {"error": "unknown rule"})
                     rf.save()
-                    st.rescore()
+                    st.rescore_all()
                 except (ValueError, ConfigError) as exc:
                     return self._json(400, {"error": str(exc)})
-            return self._json(200, st.snapshot())
+            return self._json(200, st.snapshot(name))
 
         if self.path == "/api/clean":
-            err = st.start_move(int(body.get("expected", -1)))
+            err = st.start_move(name, int(body.get("expected", -1)))
             return self._json(409 if err else 200, {"error": err} if err else {"ok": True})
 
         self._json(404, {"error": "not found"})
 
 
-def serve(config_path: Optional[Path], port: int = 8765, open_browser: bool = True) -> int:
-    state = State(config_path)
+def serve(config_path: Optional[Path], port: int = 8765, open_browser: bool = True,
+          account: Optional[str] = None) -> int:
+    state = State(config_path, account)
     token = secrets.token_urlsafe(24)
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     actual = server.server_address[1]
     Handler.state, Handler.token, Handler.port = state, token, actual
     url = f"http://127.0.0.1:{actual}/"
     print(f"\n  binbag is running at {url}")
-    print(f"  Signed in as {state.cfg.account.username}. Only this computer can reach it.")
+    print(f"  Accounts: {', '.join(state.names)}. Only this computer can reach it.")
     print("  Press Ctrl+C to stop.\n")
     if open_browser:
         threading.Timer(0.4, lambda: webbrowser.open(url)).start()

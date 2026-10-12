@@ -3,6 +3,7 @@
     binbag init                 write a starter config
     binbag login                sign in to Outlook/Hotmail (OAuth2), once
     binbag serve                the same, in your browser: scan, set rules, clean
+    binbag accounts             list the accounts in your config
     binbag folders              show what the server calls things
     binbag scan                 dry run: score everything, write a report
     binbag clean --apply        move the junk to the Bin
@@ -12,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import csv
 import sys
 from datetime import datetime, timedelta
@@ -66,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve = sub.add_parser("serve", help="open binbag in your browser (runs locally)")
     serve.add_argument("-c", "--config", type=Path, default=None, help="path to binbag.toml")
+    serve.add_argument("-a", "--account", default=None, help="account to show first")
     serve.add_argument("-p", "--port", type=int, default=8765)
     serve.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     serve.set_defaults(func=cmd_serve)
@@ -73,6 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
     login = sub.add_parser("login", help="sign in to Outlook/Hotmail with OAuth2 (one-off)")
     _common(login)
     login.set_defaults(func=cmd_login)
+
+    accounts = sub.add_parser("accounts", help="list the accounts in your config")
+    accounts.add_argument("-c", "--config", type=Path, default=None, help="path to binbag.toml")
+    accounts.set_defaults(func=cmd_accounts)
 
     folders = sub.add_parser("folders", help="list mailbox folders and special ones")
     _common(folders)
@@ -108,6 +115,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("-c", "--config", type=Path, default=None, help="path to binbag.toml")
+    p.add_argument("-a", "--account", default=None,
+                   help="which account, by name or address (default: the first in the config)")
     p.add_argument("-q", "--quiet", action="store_true")
 
 
@@ -174,13 +183,29 @@ def cmd_init(args) -> int:
 def cmd_serve(args) -> int:
     from .web import serve
 
-    return serve(args.config, port=args.port, open_browser=not args.no_browser)
+    return serve(args.config, port=args.port, open_browser=not args.no_browser, account=args.account)
+
+
+def cmd_accounts(args) -> int:
+    cfg = Config.load(args.config)
+    print()
+    for i, a in enumerate(cfg.accounts):
+        if a.auth == "oauth2":
+            signed_in = a.token_path.exists()
+            how = "OAuth2, " + ("signed in" if signed_in else "not signed in: run `binbag login -a " + a.name + "`")
+        else:
+            how = f"app password from ${a.password_env}" + ("" if os.environ.get(a.password_env) else " (not set)")
+        default = "  (default)" if i == 0 else ""
+        label = a.name if a.name == a.username else f"{a.name}  ({a.username})"
+        print(f"  {label:<44} {how}{default}")
+    print("\n  Pick one with -a NAME, e.g.  binbag scan -a " + cfg.accounts[-1].name + "\n")
+    return 0
 
 
 def cmd_login(args) -> int:
     from . import oauth
 
-    cfg = Config.load(args.config)
+    cfg = Config.load(args.config, getattr(args, 'account', None))
     if cfg.account.auth != "oauth2":
         print(f"  {cfg.account.username} uses a password, not OAuth2. Nothing to sign in to.\n"
               "  (Set auth = \"oauth2\" under [account] if this is an Outlook or Hotmail address.)\n")
@@ -192,7 +217,7 @@ def cmd_login(args) -> int:
 
 
 def cmd_folders(args) -> int:
-    cfg = Config.load(args.config)
+    cfg = Config.load(args.config, getattr(args, 'account', None))
     with open_mailbox(cfg.account) as box:
         specials = {
             "Bin/Trash": box.trash_folder(),
@@ -314,7 +339,7 @@ def move_junk(cfg: Config, junk: Sequence[Verdict], scanned_validity: Dict[str, 
 
 
 def fetch_mailbox(cfg: Config, folders: Sequence[str], criteria: Sequence[str] = (), limit: int = 0,
-                  say=lambda *a: None) -> tuple[List[Message], Contacts, Dict[str, Optional[int]]]:
+                  say=lambda *a: None, progress=None) -> tuple[List[Message], Contacts, Dict[str, Optional[int]]]:
     """Read headers from the given folders, read-only. No scoring."""
     with open_mailbox(cfg.account) as box:
         contacts = Contacts()
@@ -333,7 +358,11 @@ def fetch_mailbox(cfg: Config, folders: Sequence[str], criteria: Sequence[str] =
             if not uids:
                 say(f"    nothing matched in {folder}")
                 continue
-            fetched = box.fetch_headers(uids)
+            if progress:
+                progress(folder, 0, len(uids))
+                fetched = box.fetch_headers(uids, progress=lambda done, total, f=folder: progress(f, done, total))
+            else:
+                fetched = box.fetch_headers(uids)
             _tag_gmail_categories(box, fetched)
             messages.extend(fetched)
             say(f"    {len(uids)} messages")
@@ -341,7 +370,7 @@ def fetch_mailbox(cfg: Config, folders: Sequence[str], criteria: Sequence[str] =
 
 
 def _run_scan(args) -> tuple[Config, List[Verdict], str, Dict[str, Optional[int]]]:
-    cfg = Config.load(args.config)
+    cfg = Config.load(args.config, getattr(args, 'account', None))
     folders = args.folders or cfg.rules.folders or ["INBOX"]
     threshold = _threshold(cfg, args)
     cfg.rules.threshold = threshold
