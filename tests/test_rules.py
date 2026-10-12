@@ -163,3 +163,44 @@ def test_score_is_bounded():
         )
     )
     assert 0 <= v.score <= 100
+
+
+# -- spoofed and disguised mail ---------------------------------------------
+
+
+def test_unreadable_sender_address_is_binned_even_with_receipt_subject():
+    s = scorer()
+    v = s.judge(make(sender="\ufffd\ufffd\ufffd-\ufffd\ufffd@\ufffd\ufffd.co.uk",
+                     subject="Save up to 75% on your energy bills!", unsubscribe=False))
+    assert v.is_junk
+    assert "spoofed" in v.reasons[0]
+
+
+def test_garbled_display_name_with_real_address_is_not_spoofed():
+    msg = make(sender="orders@realshop.example", subject="Your order #551 has been dispatched", unsubscribe=False)
+    msg.headers["from"] = '"Caf\ufffd Shop" <orders@realshop.example>'
+    assert not scorer().judge(msg).is_junk
+
+
+def test_flagged_spoof_still_kept():
+    msg = make(sender="\ufffd\ufffd@\ufffd.com", subject="Final notice", flagged=True)
+    assert not scorer().judge(msg).is_junk
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "£193m already ᑭaid out 𝖙o ｄiesel owners",
+        "Re: ᴄ𝟶ɴɢʀᴀᴛs - ᴛʜᴏᴜsᴀɴᴅs ɴ𝟶ᴛɪғɪᴄᴀᴛɪᴏɴ",
+        "Are you eIigible for fuIIy funded soIar paneIs",
+    ],
+)
+def test_disguised_subjects_are_junk(subject):
+    v = scorer().judge(make(sender="newsletters.x1@random-domain.example", subject=subject, unsubscribe=False))
+    assert v.is_junk, (v.score, v.reasons)
+
+
+@pytest.mark.parametrize("subject", ["Introducing iPhone", "Your IKEA order", "MIT Technology Review", "Café opening"])
+def test_normal_capitals_and_accents_are_not_disguise(subject):
+    from binbag.rules import _looks_disguised
+    assert _looks_disguised(subject) is None

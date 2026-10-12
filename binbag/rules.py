@@ -72,6 +72,29 @@ TRANSACTIONAL_PHRASES = (
     "interview", "offer letter", "your application", "visa", "passport",
 )
 
+# Letters from other scripts and Unicode's maths/small-caps blocks that look
+# like Latin ones. Legitimate senders type "paid"; spammers type "ᑭaid" or
+# "𝖕aid" to slip past filters.
+_HOMOGLYPH_RANGES = (
+    (0x1D400, 0x1D7FF),  # mathematical alphanumerics: 𝐀 𝖆 𝟶
+    (0xFF21, 0xFF5A),    # fullwidth Latin: Ａ ｄ
+    (0x1D00, 0x1D2B),    # small capitals: ᴄ ɴ ʀ
+    (0x1400, 0x167F),    # Canadian syllabics, used for ᑭ ᑕ ᗷ
+    (0x13A0, 0x13FF),    # Cherokee, used for Ꭺ Ᏼ
+)
+# Capital I or digit 1 where a lowercase l belongs: "eIigible", "fuIIy".
+_FAKE_L_RE = re.compile(r"[a-z]I[a-z]|[a-z]II[a-z]")
+
+
+def _looks_disguised(subject: str) -> Optional[str]:
+    odd = sum(1 for ch in subject if any(lo <= ord(ch) <= hi for lo, hi in _HOMOGLYPH_RANGES))
+    if odd >= 2:
+        return "subject uses look-alike characters to dodge filters"
+    if _FAKE_L_RE.search(subject):
+        return "subject swaps a capital I in for a lowercase l"
+    return None
+
+
 _NOREPLY_RE = re.compile(
     r"\b(no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|notifications?|"
     r"mailer|bounce|newsletter|news|marketing|promo|offers?|deals?|info|hello|"
@@ -164,14 +187,21 @@ class Scorer:
         if protections:
             return Verdict(msg, 0, [], protections, protected=True)
 
-        # 3. Expiry. You've said exactly which sender and how old, so this
+        # 3. Spoofed senders. A sender *address* (not just the display name)
+        #    full of undecodable bytes is never a real company: mail systems
+        #    can't even route a reply to it. Receipt-looking subjects from
+        #    such a sender are bait, so this beats the soft protections.
+        if sender and "\ufffd" in sender:
+            return Verdict(msg, 100, ["sender address is unreadable, so it's spoofed or malformed"], [], protected=False)
+
+        # 4. Expiry. You've said exactly which sender and how old, so this
         #    beats the softer protections below, transactional ones included:
         #    that's the point of it. Undated mail is never expired.
         expired = self._expiry(msg)
         if expired:
             return Verdict(msg, 100, [expired], [], protected=False)
 
-        # 4. Soft protections. Any one of these and the message is untouchable.
+        # 5. Soft protections. Any one of these and the message is untouchable.
         if sender and sender in self.contacts.addresses:
             protections.append("you have emailed this person")
         if sender and sender in self._sender_answered:
@@ -191,7 +221,7 @@ class Scorer:
         if protections:
             return Verdict(msg, 0, [], protections, protected=True)
 
-        # 5. Scoring.
+        # 6. Scoring.
         signals: List[Signal] = []
 
         if msg.header("list-unsubscribe"):
@@ -227,6 +257,9 @@ class Scorer:
             signals.append(
                 Signal(min(8 * len(phrases), 24), "marketing language: " + ", ".join(repr(p) for p in phrases))
             )
+        disguised = _looks_disguised(msg.subject)
+        if disguised:
+            signals.append(Signal(50, disguised))
         junk_hit = _first_match(subject, tuple(self.rules.junk_subjects))
         if junk_hit:
             signals.append(Signal(40, f"matches your junk list ({junk_hit!r})"))
